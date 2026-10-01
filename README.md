@@ -6,7 +6,7 @@ QSerialTool 是一个面向开发者与测试人员的跨平台串口调试助�
 
 ## 当前状态
 
-工程当前已完成 **M4：完整 MVP**，下一步进入 **M5：发布质量**。
+工程当前处于 **M5：发布质量**，M0-M4 功能已完成。
 
 已完成：
 
@@ -15,9 +15,9 @@ QSerialTool 是一个面向开发者与测试人员的跨平台串口调试助�
 - M2：实现 pyserial Transport、Worker 命令队列、会话控制器、会话管理器和 `loop://` 集成验证。
 - M3：实现多标签主窗口、端口配置、连接控制、文本/HEX 接收显示与基础发送编辑。
 - M4：实现 CSV/TXT 日志、配置恢复、发送历史、周期发送、主题切换和日志导出。
+- M5：已加入 Windows/Linux 单文件构建脚本、PyInstaller 配置、发布文档和检查清单。
 
-当前尚未完成正式发布所需的真实硬件跨平台验收、压力测试、单文件产物验证和发布文档。
-
+当前仍需在允许执行本地产物的 Windows 环境和 Ubuntu 22.04 上完成单文件启动、真实串口和长时间稳定性验收。
 ## 环境要求
 
 - Python 3.10.x
@@ -69,6 +69,22 @@ Linux 环境使用 `./.venv/bin/python -m qserialtool`。
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+## 构建单文件
+
+Windows：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
+```
+
+Linux：
+
+```bash
+chmod +x scripts/build.sh
+./scripts/build.sh
+```
+
+详细步骤见 `docs/build-and-release.md`，发布检查项见 `docs/release-checklist.md`。
 ## 项目文档
 
 - 详细实施计划：`docs/implementation-plan.md`
