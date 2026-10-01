@@ -12,6 +12,8 @@ from qserialtool.application.session_controller import (
 )
 from qserialtool.domain import (
     Clock,
+    LogFormat,
+    LogSink,
     PortBusyError,
     SerialConfig,
     SessionState,
@@ -29,6 +31,7 @@ class SessionManager:
         transport_factory: Callable[[], Transport],
         clock: Clock,
         session_id_factory: Callable[[], str] | None = None,
+        log_sink_factory: Callable[[LogFormat], LogSink] | None = None,
     ) -> None:
         if not callable(transport_factory):
             raise ValidationError("transport_factory 必须可调用。")
@@ -36,6 +39,7 @@ class SessionManager:
         self._transport_factory = transport_factory
         self._clock = clock
         self._session_id_factory = session_id_factory or (lambda: uuid4().hex)
+        self._log_sink_factory = log_sink_factory
         self._sessions: dict[str, SessionController] = {}
 
     @property
@@ -66,6 +70,7 @@ class SessionManager:
                     title=title,
                     on_snapshot=on_snapshot,
                     on_record=on_record,
+                    log_sink_factory=self._log_sink_factory,
                 ),
             )
             self._sessions[session_id] = controller

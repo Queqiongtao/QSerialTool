@@ -12,6 +12,8 @@ Parity: TypeAlias = Literal["N", "E", "O", "M", "S"]
 Theme: TypeAlias = Literal["system", "light", "dark"]
 
 MAX_SEND_HISTORY = 100
+MIN_PERIODIC_INTERVAL_MS = 10
+MAX_PERIODIC_INTERVAL_MS = 86_400_000
 
 SUPPORTED_BYTESIZES = frozenset({5, 6, 7, 8})
 SUPPORTED_ENCODINGS = frozenset({"utf-8", "gb18030", "ascii"})

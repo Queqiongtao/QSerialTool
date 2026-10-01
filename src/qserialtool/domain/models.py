@@ -7,7 +7,9 @@ from .codecs import decode_text, format_hex
 from .errors import UserFacingError, ValidationError
 from .states import SessionState
 from .types import (
+    MAX_PERIODIC_INTERVAL_MS,
     MAX_SEND_HISTORY,
+    MIN_PERIODIC_INTERVAL_MS,
     SUPPORTED_BYTESIZES,
     SUPPORTED_ENCODINGS,
     SUPPORTED_FLOW_CONTROLS,
@@ -19,6 +21,7 @@ from .types import (
     DisplayMode,
     EncodingName,
     FlowControl,
+    LineEnding,
     LogDirection,
     LogFormat,
     Parity,
@@ -175,10 +178,13 @@ class SessionPreferences:
     show_rx: bool
     show_tx: bool
     autoscroll: bool
-    auto_log_enabled: bool
-    auto_log_format: LogFormat
-    auto_log_directory: str
-    send_history: tuple[str, ...]
+    auto_log_enabled: bool = False
+    auto_log_format: LogFormat = "csv"
+    auto_log_directory: str = ""
+    send_history: tuple[str, ...] = ()
+    send_mode: DisplayMode = "text"
+    line_ending: LineEnding = "none"
+    periodic_interval_ms: int = 1000
 
     def __post_init__(self) -> None:
         _require_string(self.title, "标签标题")
@@ -203,6 +209,15 @@ class SessionPreferences:
             raise ValidationError("发送历史不能超过 100 条。")
         if any(not isinstance(item, str) for item in self.send_history):
             raise ValidationError("发送历史只能包含字符串。")
+        if self.send_mode not in {"text", "hex"}:
+            raise ValidationError("发送模式必须是 text 或 hex。")
+        if self.line_ending not in {"none", "cr", "lf", "crlf"}:
+            raise ValidationError("换行策略不受支持。")
+        if (
+            type(self.periodic_interval_ms) is not int
+            or not MIN_PERIODIC_INTERVAL_MS <= self.periodic_interval_ms <= MAX_PERIODIC_INTERVAL_MS
+        ):
+            raise ValidationError("周期发送间隔超出允许范围。")
 
 
 @dataclass(frozen=True, slots=True)

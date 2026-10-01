@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer
+from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -34,6 +34,8 @@ _FLOW_CONTROLS = (
 
 
 class ConnectionPanel(QGroupBox):
+    config_changed = Signal()
+
     """编辑串口参数并管理单个连接。"""
 
     def __init__(
@@ -80,6 +82,15 @@ class ConnectionPanel(QGroupBox):
         self.connect_button.clicked.connect(self._toggle_connection)
         self.dtr_check.toggled.connect(self._line_state_changed)
         self.rts_check.toggled.connect(self._line_state_changed)
+        self.port_combo.editTextChanged.connect(self._config_changed)
+        self.baud_combo.currentTextChanged.connect(self._config_changed)
+        for combo in (
+            self.bytesize_combo,
+            self.parity_combo,
+            self.stopbits_combo,
+            self.flow_combo,
+        ):
+            combo.currentIndexChanged.connect(self._config_changed)
 
         layout = QGridLayout(self)
         labels = (
@@ -134,11 +145,11 @@ class ConnectionPanel(QGroupBox):
             if state is SessionState.CONNECTED:
                 self._controller.disconnect()
             elif state in {SessionState.DISCONNECTED, SessionState.ERROR}:
-                self._controller.connect(self._build_config())
+                self._controller.connect(self.build_config())
         except DomainError as exc:
             QMessageBox.warning(self, "串口操作失败", exc.message)
 
-    def _build_config(self) -> SerialConfig:
+    def build_config(self) -> SerialConfig:
         try:
             baudrate = int(self.baud_combo.currentText().strip())
         except ValueError as exc:
@@ -155,8 +166,15 @@ class ConnectionPanel(QGroupBox):
             encoding=self._controller.config.encoding,
         )
 
+    def _config_changed(self) -> None:
+        if not self._updating:
+            self.config_changed.emit()
+
     def _line_state_changed(self) -> None:
-        if self._updating or self._controller.state is not SessionState.CONNECTED:
+        if self._updating:
+            return
+        self.config_changed.emit()
+        if self._controller.state is not SessionState.CONNECTED:
             return
         try:
             self._controller.set_line_state(

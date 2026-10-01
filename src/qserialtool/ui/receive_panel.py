@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from PySide6.QtCore import QSignalBlocker, Signal
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -15,24 +16,31 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from qserialtool.domain import LogRecord
+from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences
 
 
 class ReceivePanel(QWidget):
     """显示当前会话的内存缓冲内容。"""
+
+    preferences_changed = Signal()
 
     def __init__(
         self,
         *,
         records_provider: Callable[[], tuple[LogRecord, ...]],
         clear_callback: Callable[[], int],
+        preferences: SessionPreferences | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._records_provider = records_provider
         self._clear_callback = clear_callback
         self._paused = False
+        self._loading = False
         self._build_ui()
+        self._connect_changes()
+        if preferences is not None:
+            self.apply_preferences(preferences)
         self.render_records()
 
     def _build_ui(self) -> None:
@@ -72,12 +80,40 @@ class ReceivePanel(QWidget):
         layout.addLayout(toolbar)
         layout.addWidget(self.output)
 
-        self.mode_combo.currentIndexChanged.connect(self.render_records)
-        self.timestamp_check.toggled.connect(self.render_records)
-        self.rx_check.toggled.connect(self.render_records)
-        self.tx_check.toggled.connect(self.render_records)
+    def _connect_changes(self) -> None:
+        self.mode_combo.currentIndexChanged.connect(self._settings_changed)
+        self.timestamp_check.toggled.connect(self._settings_changed)
+        self.rx_check.toggled.connect(self._settings_changed)
+        self.tx_check.toggled.connect(self._settings_changed)
+        self.autoscroll_check.toggled.connect(self._settings_changed)
         self.pause_button.toggled.connect(self._pause_changed)
         self.clear_button.clicked.connect(self._clear)
+
+    def apply_preferences(self, preferences: SessionPreferences) -> None:
+        """应用持久化的显示偏好。"""
+        self._loading = True
+        try:
+            with (
+                QSignalBlocker(self.mode_combo),
+                QSignalBlocker(self.timestamp_check),
+                QSignalBlocker(self.rx_check),
+                QSignalBlocker(self.tx_check),
+                QSignalBlocker(self.autoscroll_check),
+            ):
+                index = self.mode_combo.findData(preferences.display_mode)
+                self.mode_combo.setCurrentIndex(max(index, 0))
+                self.timestamp_check.setChecked(preferences.show_timestamp)
+                self.rx_check.setChecked(preferences.show_rx)
+                self.tx_check.setChecked(preferences.show_tx)
+                self.autoscroll_check.setChecked(preferences.autoscroll)
+        finally:
+            self._loading = False
+        self.render_records()
+
+    @property
+    def display_mode(self) -> DisplayMode:
+        """返回当前文本或 HEX 显示模式。"""
+        return self.mode_combo.currentData()  # type: ignore[return-value]
 
     def append_record(self, record: LogRecord) -> None:
         """在未暂停时追加一条记录。"""
@@ -119,7 +155,7 @@ class ReceivePanel(QWidget):
             local_time = record.timestamp_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
             prefix += f"[{local_time}] "
         prefix += f"{record.direction.upper()}: "
-        payload = record.hex_text if self.mode_combo.currentData() == "hex" else record.text
+        payload = record.hex_text if self.display_mode == "hex" else record.text
         return prefix + payload
 
     def _should_show(self, record: LogRecord) -> bool:
@@ -137,6 +173,12 @@ class ReceivePanel(QWidget):
             return "#2563a8"
         return "#7b7b7b"
 
+    def _settings_changed(self) -> None:
+        if self._loading:
+            return
+        self.render_records()
+        self.preferences_changed.emit()
+
     def _pause_changed(self, paused: bool) -> None:
         self._paused = paused
         self.pause_button.setText("继续" if paused else "暂停")
@@ -145,7 +187,7 @@ class ReceivePanel(QWidget):
 
     def _clear(self) -> None:
         if (
-            self.output.toPlainText()
+            self._records_provider()
             and QMessageBox.question(
                 self,
                 "清空接收区",
