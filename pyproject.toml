@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=77,<85", "wheel>=0.42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qserialtool"
+dynamic = ["version"]
+description = "QSerialTool 跨平台串口调试助手"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [
+  { name = "QSerialTool contributors" },
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: X11 Applications :: Qt",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: Developers",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Software Development :: Embedded Systems",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "PySide6>=6.8,<7",
+  "pyserial==3.5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pip-tools>=7.4,<8",
+  "pytest>=8,<10",
+  "pytest-cov>=6,<8",
+  "pytest-qt>=4.4,<5",
+  "ruff>=0.9,<1",
+]
+build = [
+  "pyinstaller>=6.20,<7",
+]
+
+[project.urls]
+Repository = "https://github.com/Queqiongtao/QSerialTool"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["qserialtool*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "qserialtool.__version__" }
+
+[tool.setuptools.package-data]
+qserialtool = ["py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+  "--strict-config",
+  "--strict-markers",
+  "-ra",
+  "--cov=qserialtool",
+  "--cov-report=term-missing",
+  "--cov-fail-under=80",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["qserialtool"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+]
+
+[tool.ruff]
+extend-exclude = ["docs"]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "PL",
+  "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
