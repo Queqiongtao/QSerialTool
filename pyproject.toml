@@ -82,6 +82,7 @@ exclude_lines = [
   "pragma: no cover",
   "if TYPE_CHECKING:",
   "raise NotImplementedError",
+  "^\\s*\\.\\.\\.\\s*$",
 ]
 
 [tool.ruff]
@@ -91,6 +92,7 @@ target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
+ignore = ["RUF001", "RUF002", "RUF003"]
 select = [
   "E",
   "F",

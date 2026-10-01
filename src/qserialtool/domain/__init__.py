@@ -1,1 +1,88 @@
-"""领域模型、状态和外部能力协议。"""
+"""领域模型、状态、校验规则和外部能力协议。"""
+
+from .buffer import DEFAULT_MAX_BYTES, DEFAULT_MAX_RECORDS, RecordBuffer
+from .codecs import (
+    IncrementalTextDecoder,
+    append_line_ending,
+    decode_text,
+    encode_text,
+    format_hex,
+    parse_hex,
+)
+from .errors import (
+    BufferCapacityError,
+    ConfigIOError,
+    DomainError,
+    ErrorCode,
+    HexFormatError,
+    InternalError,
+    InvalidStateTransitionError,
+    LogIOError,
+    PortBusyError,
+    PortNotFoundError,
+    PortPermissionError,
+    TextEncodingError,
+    TransportIOError,
+    UserFacingError,
+    ValidationError,
+)
+from .models import AppConfig, LogRecord, SerialConfig, SessionPreferences, SessionSnapshot
+from .ports import Clock, ConfigStore, LogSink, Transport
+from .state_machine import SessionStateMachine
+from .states import SessionState
+from .types import (
+    DisplayMode,
+    EncodingName,
+    FlowControl,
+    LineEnding,
+    LogDirection,
+    LogFormat,
+    Parity,
+    Theme,
+)
+
+__all__ = [
+    "DEFAULT_MAX_BYTES",
+    "DEFAULT_MAX_RECORDS",
+    "AppConfig",
+    "BufferCapacityError",
+    "Clock",
+    "ConfigIOError",
+    "ConfigStore",
+    "DisplayMode",
+    "DomainError",
+    "EncodingName",
+    "ErrorCode",
+    "FlowControl",
+    "HexFormatError",
+    "IncrementalTextDecoder",
+    "InternalError",
+    "InvalidStateTransitionError",
+    "LineEnding",
+    "LogDirection",
+    "LogFormat",
+    "LogIOError",
+    "LogRecord",
+    "LogSink",
+    "Parity",
+    "PortBusyError",
+    "PortNotFoundError",
+    "PortPermissionError",
+    "RecordBuffer",
+    "SerialConfig",
+    "SessionPreferences",
+    "SessionSnapshot",
+    "SessionState",
+    "SessionStateMachine",
+    "TextEncodingError",
+    "Theme",
+    "Transport",
+    "TransportIOError",
+    "UserFacingError",
+    "ValidationError",
+    "append_line_ending",
+    "decode_text",
+    "encode_text",
+    "format_hex",
+    "parse_hex",
+]
