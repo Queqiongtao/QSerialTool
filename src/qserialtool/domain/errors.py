@@ -12,6 +12,7 @@ class ErrorCode(str, Enum):
     TEXT_ENCODING_ERROR = "TEXT_ENCODING_ERROR"
     INVALID_STATE_TRANSITION = "INVALID_STATE_TRANSITION"
     BUFFER_CAPACITY_ERROR = "BUFFER_CAPACITY_ERROR"
+    SEND_QUEUE_FULL = "SEND_QUEUE_FULL"
     PORT_NOT_FOUND = "PORT_NOT_FOUND"
     PORT_BUSY = "PORT_BUSY"
     PORT_PERMISSION_DENIED = "PORT_PERMISSION_DENIED"
@@ -128,6 +129,15 @@ class BufferCapacityError(DomainError):
     code = ErrorCode.BUFFER_CAPACITY_ERROR
     recoverable = True
     default_message = "数据记录超过缓冲区容量限制。"
+
+
+class SendQueueFullError(DomainError):
+    """发送队列达到容量上限。"""
+
+    code = ErrorCode.SEND_QUEUE_FULL
+    recoverable = True
+    default_message = "发送队列已满。"
+    default_suggestion = "请等待当前数据发送完成后再试。"
 
 
 class PortNotFoundError(DomainError):
