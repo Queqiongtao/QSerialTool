@@ -1,0 +1,158 @@
+"""接收数据显示和显示过滤面板。"""
+
+from collections.abc import Callable
+
+from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from qserialtool.domain import LogRecord
+
+
+class ReceivePanel(QWidget):
+    """显示当前会话的内存缓冲内容。"""
+
+    def __init__(
+        self,
+        *,
+        records_provider: Callable[[], tuple[LogRecord, ...]],
+        clear_callback: Callable[[], int],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._records_provider = records_provider
+        self._clear_callback = clear_callback
+        self._paused = False
+        self._build_ui()
+        self.render_records()
+
+    def _build_ui(self) -> None:
+        toolbar = QHBoxLayout()
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("文本", "text")
+        self.mode_combo.addItem("HEX", "hex")
+        self.timestamp_check = QCheckBox("时间戳")
+        self.timestamp_check.setChecked(True)
+        self.rx_check = QCheckBox("RX")
+        self.rx_check.setChecked(True)
+        self.tx_check = QCheckBox("TX")
+        self.tx_check.setChecked(True)
+        self.pause_button = QPushButton("暂停")
+        self.pause_button.setCheckable(True)
+        self.clear_button = QPushButton("清屏")
+        self.autoscroll_check = QCheckBox("自动滚动")
+        self.autoscroll_check.setChecked(True)
+
+        toolbar.addWidget(QLabel("显示"))
+        toolbar.addWidget(self.mode_combo)
+        toolbar.addWidget(self.timestamp_check)
+        toolbar.addWidget(self.rx_check)
+        toolbar.addWidget(self.tx_check)
+        toolbar.addStretch(1)
+        toolbar.addWidget(self.pause_button)
+        toolbar.addWidget(self.clear_button)
+        toolbar.addWidget(self.autoscroll_check)
+
+        self.output = QPlainTextEdit()
+        self.output.setReadOnly(True)
+        self.output.document().setMaximumBlockCount(100_000)
+        self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(toolbar)
+        layout.addWidget(self.output)
+
+        self.mode_combo.currentIndexChanged.connect(self.render_records)
+        self.timestamp_check.toggled.connect(self.render_records)
+        self.rx_check.toggled.connect(self.render_records)
+        self.tx_check.toggled.connect(self.render_records)
+        self.pause_button.toggled.connect(self._pause_changed)
+        self.clear_button.clicked.connect(self._clear)
+
+    def append_record(self, record: LogRecord) -> None:
+        """在未暂停时追加一条记录。"""
+        if self._paused or not self._should_show(record):
+            return
+        self._insert_record(record)
+
+    def render_records(self) -> None:
+        """从内存缓冲重新渲染全部记录。"""
+        if self._paused:
+            return
+        self.output.clear()
+        cursor = self.output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        for record in self._records_provider():
+            if self._should_show(record):
+                self._insert_record(record, cursor)
+        if self.autoscroll_check.isChecked():
+            self.output.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _insert_record(
+        self,
+        record: LogRecord,
+        cursor: QTextCursor | None = None,
+    ) -> None:
+        target = cursor or self.output.textCursor()
+        if cursor is None:
+            target.movePosition(QTextCursor.MoveOperation.End)
+        text_format = QTextCharFormat()
+        text_format.setForeground(QColor(self._color_for(record)))
+        target.setCharFormat(text_format)
+        target.insertText(self._format_record(record) + "\n")
+        if cursor is None and self.autoscroll_check.isChecked():
+            self.output.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _format_record(self, record: LogRecord) -> str:
+        prefix = ""
+        if self.timestamp_check.isChecked():
+            local_time = record.timestamp_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            prefix += f"[{local_time}] "
+        prefix += f"{record.direction.upper()}: "
+        payload = record.hex_text if self.mode_combo.currentData() == "hex" else record.text
+        return prefix + payload
+
+    def _should_show(self, record: LogRecord) -> bool:
+        if record.direction == "rx":
+            return self.rx_check.isChecked()
+        if record.direction == "tx":
+            return self.tx_check.isChecked()
+        return True
+
+    @staticmethod
+    def _color_for(record: LogRecord) -> str:
+        if record.direction == "rx":
+            return "#1f8b4c"
+        if record.direction == "tx":
+            return "#2563a8"
+        return "#7b7b7b"
+
+    def _pause_changed(self, paused: bool) -> None:
+        self._paused = paused
+        self.pause_button.setText("继续" if paused else "暂停")
+        if not paused:
+            self.render_records()
+
+    def _clear(self) -> None:
+        if (
+            self.output.toPlainText()
+            and QMessageBox.question(
+                self,
+                "清空接收区",
+                "确定清空当前内存缓冲吗？自动日志文件不会受影响。",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        self._clear_callback()
+        self.output.clear()

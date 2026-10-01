@@ -38,6 +38,15 @@ class Transport(Protocol):
 
 
 @runtime_checkable
+class PortScanner(Protocol):
+    """系统串口发现能力。"""
+
+    def list_ports(self) -> tuple[str, ...]:
+        """返回当前可用的串口名称。"""
+        ...
+
+
+@runtime_checkable
 class Clock(Protocol):
     """可注入的时钟能力。"""
 
