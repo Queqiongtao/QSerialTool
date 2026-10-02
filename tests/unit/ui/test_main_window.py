@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QMessageBox, QScrollArea
+from PySide6.QtWidgets import QMenuBar, QMessageBox, QScrollArea, QToolBar
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
 from qserialtool.application import SessionManager
@@ -304,14 +304,46 @@ def test_new_session_action_and_tab_button_create_sessions(qtbot: object) -> Non
     transport = FakeTransport()
     window = _window(qtbot, transport)
 
-    menu = window.menuBar().actions()[0].menu()
-    assert menu is not None
-    action = next(item for item in menu.actions() if item.text() == "新建会话")
+    action = next(item for item in window.main_menu.actions() if item.text() == "新建会话")
     action.trigger()
     assert window.tabs.count() == 2
 
     qtbot.mouseClick(window.new_tab_button, Qt.MouseButton.LeftButton)
     assert window.tabs.count() == 3
+    window.close()
+
+
+def test_main_window_uses_single_row_header(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+
+    assert window.findChildren(QToolBar) == []
+    assert window.findChildren(QMenuBar) == []
+
+    corner = window.tabs.cornerWidget(Qt.Corner.TopRightCorner)
+    assert corner is not None
+    assert window.theme_combo.parentWidget() is corner
+    assert window.new_tab_button.parentWidget() is corner
+    assert window.menu_button.parentWidget() is corner
+    assert window.theme_combo.isVisible()
+    assert window.new_tab_button.isVisible()
+    assert window.menu_button.isVisible()
+    window.close()
+
+
+def test_header_actions_keep_shortcuts_without_menu_bar(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    shortcuts = {action.text(): action.shortcut().toString() for action in window.actions()}
+
+    assert shortcuts["新建会话"] == "Ctrl+T"
+    assert shortcuts["关闭当前会话"] == "Ctrl+W"
+    assert shortcuts["退出"] == "Ctrl+Q"
+
+    window.activateWindow()
+    qtbot.waitUntil(window.isActiveWindow, timeout=2000)
+    qtbot.keyClick(window, Qt.Key.Key_T, Qt.KeyboardModifier.ControlModifier)
+    qtbot.waitUntil(lambda: window.tabs.count() == 2, timeout=2000)
     window.close()
 
 

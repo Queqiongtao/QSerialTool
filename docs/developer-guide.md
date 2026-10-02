@@ -174,7 +174,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 
 ## 8. UI 层职责
 
-- `MainWindow`：标签、主题、菜单/快捷键、标签栏“+”按钮、窗口状态和配置保存（内容未变化时跳过写盘）；窗口最小尺寸为 900×600，主题变化后对每个 `SessionTab` 调用 `refresh_theme()`。
+- `MainWindow`：单行头部，不创建 `QMenuBar` 与 `QToolBar`；标签栏右上角角落控件依次承载“主题”下拉框、“+”新建按钮和“☰”菜单（新建会话/关闭当前会话/退出），菜单动作额外用 `addAction()` 挂到窗口以保留 `Ctrl+T/W/Q`；负责标签、窗口状态与配置保存（内容未变化时跳过写盘），窗口最小尺寸 900×600，主题变化后对每个 `SessionTab` 调用 `refresh_theme()`。
 - `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上，接收标题行最左侧是侧栏折叠按钮，底部状态条由 `state_indicator` 色点和 `status_label` 组成。
 - `ConnectionPanel`：端口刷新、配置校验、连接/断开和 DTR/RTS；表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标，`set_refresh_active()` 按标签可见性启停轮询。
 - `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件使用 `theme_manager.data_font()` 等宽字体，取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()` 在标题行左侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。

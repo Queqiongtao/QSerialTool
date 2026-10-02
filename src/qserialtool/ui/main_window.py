@@ -7,12 +7,12 @@ from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
-    QSizePolicy,
     QTabWidget,
-    QToolBar,
     QToolButton,
     QWidget,
 )
@@ -89,36 +89,52 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
 
-        file_menu = self.menuBar().addMenu("文件")
-        file_menu.addAction(new_action)
-        file_menu.addAction(close_action)
-        file_menu.addSeparator()
-        file_menu.addAction(exit_action)
-        toolbar = QToolBar("主工具栏", self)
-        toolbar.addAction(new_action)
-        toolbar.addSeparator()
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer)
-        toolbar.addWidget(QLabel("主题"))
+        self.main_menu = QMenu(self)
+        self.main_menu.addAction(new_action)
+        self.main_menu.addAction(close_action)
+        self.main_menu.addSeparator()
+        self.main_menu.addAction(exit_action)
+        for action in (new_action, close_action, exit_action):
+            # 去掉菜单栏和工具栏后，动作必须挂到窗口上，快捷键才会继续生效。
+            self.addAction(action)
+
+        self.menu_button = QToolButton()
+        self.menu_button.setText("☰")
+        self.menu_button.setAutoRaise(True)
+        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 退出")
+        self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.menu_button.setMenu(self.main_menu)
+
         self.theme_combo = QComboBox()
         for label, value in _THEMES:
             self.theme_combo.addItem(label, value)
         index = self.theme_combo.findData(self._theme)
         self.theme_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.theme_combo.setFixedHeight(22)
+        self.theme_combo.setMinimumWidth(88)
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
-        toolbar.addWidget(self.theme_combo)
-        self.addToolBar(toolbar)
 
         self.new_tab_button = QToolButton()
         self.new_tab_button.setText("+")
         self.new_tab_button.setAutoRaise(True)
         self.new_tab_button.setToolTip("新建会话 (Ctrl+T)")
         self.new_tab_button.clicked.connect(self._new_session)
-        self.tabs.setCornerWidget(self.new_tab_button, Qt.Corner.TopRightCorner)
+
+        self.tabs.setDocumentMode(True)
+        self._header_tools = QWidget()
+        header_layout = QHBoxLayout(self._header_tools)
+        header_layout.setContentsMargins(2, 0, 4, 0)
+        header_layout.setSpacing(4)
+        header_layout.addWidget(QLabel("主题"))
+        header_layout.addWidget(self.theme_combo)
+        header_layout.addWidget(self.new_tab_button)
+        header_layout.addWidget(self.menu_button)
+        self.tabs.setCornerWidget(self._header_tools, Qt.Corner.TopRightCorner)
+        # 设置角落控件会重新挂载父级并隐藏控件，必须显式显示。
+        self._header_tools.show()
 
     def _new_session(self, _checked: bool = False) -> None:
-        """菜单、工具栏和标签栏按钮共用的零参数入口。
+        """标签栏“+”按钮和“☰”菜单共用的零参数入口。
 
         QAction 与 QToolButton 的信号会带上一个布尔状态，直接连接 ``new_session``
         会把它当成 ``preferences`` 传入并报错，因此在此显式吞掉该参数。
