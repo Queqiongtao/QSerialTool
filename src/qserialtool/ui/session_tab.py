@@ -2,11 +2,13 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import QByteArray, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -36,7 +38,7 @@ _STATE_LABELS = {
 
 
 class SessionTab(QWidget):
-    """组合连接、接收、发送和日志面板。"""
+    """组合左侧连接设置和右侧收发主区域。"""
 
     preferences_changed = Signal()
 
@@ -53,15 +55,11 @@ class SessionTab(QWidget):
         self.controller = controller
         self._bridge = bridge
         self._last_error_key: tuple[object, str | None] | None = None
+        self._sidebar_visible = True
+        self._sidebar_width = 320
         self._build_ui(port_provider, preferences)
-        bridge.snapshot_changed.connect(
-            self._on_snapshot,
-            Qt.ConnectionType.QueuedConnection,
-        )
-        bridge.record_received.connect(
-            self._on_record,
-            Qt.ConnectionType.QueuedConnection,
-        )
+        bridge.snapshot_changed.connect(self._on_snapshot, Qt.ConnectionType.QueuedConnection)
+        bridge.record_received.connect(self._on_record, Qt.ConnectionType.QueuedConnection)
         self._on_snapshot(controller.snapshot)
 
     def _build_ui(
@@ -78,23 +76,47 @@ class SessionTab(QWidget):
             clear_callback=self.controller.clear_buffer,
             preferences=preferences,
         )
-        self.send_panel = SendPanel(
-            controller=self.controller,
-            preferences=preferences,
-        )
+        self.send_panel = SendPanel(controller=self.controller, preferences=preferences)
         self.log_panel = LogPanel(controller=self.controller)
+
+        self.sidebar = QWidget()
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.addWidget(self.connection_panel)
+        sidebar_layout.addWidget(self.log_panel)
+        sidebar_layout.addStretch(1)
+
+        self.main_content = QWidget()
+        receive_send_splitter = QSplitter(Qt.Orientation.Vertical)
+        receive_send_splitter.addWidget(self.receive_panel)
+        receive_send_splitter.addWidget(self.send_panel)
+        receive_send_splitter.setStretchFactor(0, 4)
+        receive_send_splitter.setStretchFactor(1, 1)
+        self.receive_send_splitter = receive_send_splitter
+        main_layout = QVBoxLayout(self.main_content)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(receive_send_splitter)
+
+        self.sidebar_toggle_button = QToolButton()
+        self.sidebar_toggle_button.setText("收起设置")
+        self.sidebar_toggle_button.setCheckable(True)
+        self.sidebar_toggle_button.clicked.connect(self._toggle_sidebar)
+        top_bar = QHBoxLayout()
+        top_bar.addStretch(1)
+        top_bar.addWidget(self.sidebar_toggle_button)
+
+        self.layout_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.layout_splitter.addWidget(self.sidebar)
+        self.layout_splitter.addWidget(self.main_content)
+        self.layout_splitter.setStretchFactor(0, 0)
+        self.layout_splitter.setStretchFactor(1, 1)
+        self.layout_splitter.setSizes([self._sidebar_width, 800])
+        self.layout_splitter.splitterMoved.connect(self._splitter_moved)
+
         self.status_label = QLabel()
-
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self.receive_panel)
-        splitter.addWidget(self.send_panel)
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 1)
-
         layout = QVBoxLayout(self)
-        layout.addWidget(self.connection_panel)
-        layout.addWidget(splitter, 1)
-        layout.addWidget(self.log_panel)
+        layout.addLayout(top_bar)
+        layout.addWidget(self.layout_splitter, 1)
         layout.addWidget(self.status_label)
 
         self.connection_panel.config_changed.connect(self.preferences_changed.emit)
@@ -102,13 +124,44 @@ class SessionTab(QWidget):
         self.send_panel.preferences_changed.connect(self.preferences_changed.emit)
         self.log_panel.preferences_changed.connect(self.preferences_changed.emit)
 
+    def apply_layout_state(
+        self,
+        *,
+        visible: bool,
+        width: int,
+        content_splitter_state: str | None,
+    ) -> None:
+        """恢复侧栏宽度、显示状态和接收/发送分隔比例。"""
+        self._sidebar_visible = visible
+        self._sidebar_width = min(max(width, 260), 480)
+        self.sidebar_toggle_button.setChecked(not visible)
+        self.sidebar_toggle_button.setText("展开设置" if not visible else "收起设置")
+        self.sidebar.setVisible(visible)
+        if content_splitter_state:
+            state = QByteArray.fromBase64(content_splitter_state.encode("ascii"))
+            self.receive_send_splitter.restoreState(state)
+        if visible:
+            self.layout_splitter.setSizes(
+                [self._sidebar_width, max(400, self.width() - self._sidebar_width)]
+            )
+        else:
+            self.layout_splitter.setSizes([0, max(400, self.width())])
+
+    def layout_state(self) -> tuple[bool, int, str | None]:
+        """返回可持久化的侧栏和主区分隔状态。"""
+        if self._sidebar_visible:
+            sizes = self.layout_splitter.sizes()
+            if sizes:
+                self._sidebar_width = min(max(sizes[0], 260), 480)
+        splitter_state = bytes(self.receive_send_splitter.saveState().toBase64()).decode("ascii")
+        return self._sidebar_visible, self._sidebar_width, splitter_state
+
     def to_preferences(self) -> SessionPreferences:
         """采集当前标签的可持久化偏好。"""
         try:
             config = self.connection_panel.build_config()
         except DomainError:
             config = self.controller.config
-        send_mode = self.send_panel.mode_combo.currentData()
         return SessionPreferences(
             title=self.controller.title,
             config=config,
@@ -121,7 +174,7 @@ class SessionTab(QWidget):
             auto_log_format=self.controller.auto_log_format,
             auto_log_directory=self.controller.auto_log_directory,
             send_history=self.send_panel.history,
-            send_mode=send_mode,
+            send_mode=self.send_panel.mode_combo.currentData(),
             line_ending=self.send_panel.newline_combo.currentData(),
             periodic_interval_ms=self.send_panel.interval_spin.value(),
         )
@@ -146,6 +199,25 @@ class SessionTab(QWidget):
     @Slot(object)
     def _on_record(self, record: LogRecord) -> None:
         self.receive_panel.append_record(record)
+
+    def _toggle_sidebar(self, hidden: bool) -> None:
+        self._sidebar_visible = not hidden
+        self.sidebar.setVisible(not hidden)
+        self.sidebar_toggle_button.setText("展开设置" if hidden else "收起设置")
+        if hidden:
+            self.layout_splitter.setSizes([0, max(400, self.width())])
+        else:
+            self.layout_splitter.setSizes(
+                [self._sidebar_width, max(400, self.width() - self._sidebar_width)]
+            )
+        self.preferences_changed.emit()
+
+    def _splitter_moved(self) -> None:
+        if self._sidebar_visible:
+            sizes = self.layout_splitter.sizes()
+            if sizes:
+                self._sidebar_width = min(max(sizes[0], 260), 480)
+        self.preferences_changed.emit()
 
     def request_close(self) -> bool:
         """在需要时确认并关闭会话。"""

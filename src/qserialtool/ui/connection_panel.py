@@ -2,13 +2,13 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
+from PySide6.QtCore import QSignalBlocker, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QGridLayout,
+    QFormLayout,
     QGroupBox,
-    QLabel,
+    QHBoxLayout,
     QMessageBox,
     QPushButton,
     QWidget,
@@ -60,7 +60,7 @@ class ConnectionPanel(QGroupBox):
     def _build_ui(self) -> None:
         self.port_combo = QComboBox()
         self.port_combo.setEditable(True)
-        self.port_combo.setMinimumWidth(140)
+        self.port_combo.setMinimumWidth(120)
         self.baud_combo = QComboBox()
         self.baud_combo.setEditable(True)
         self.baud_combo.addItems(_BAUDRATES)
@@ -92,23 +92,19 @@ class ConnectionPanel(QGroupBox):
         ):
             combo.currentIndexChanged.connect(self._config_changed)
 
-        layout = QGridLayout(self)
-        labels = (
-            ("端口", self.port_combo),
-            ("波特率", self.baud_combo),
-            ("数据位", self.bytesize_combo),
-            ("校验位", self.parity_combo),
-            ("停止位", self.stopbits_combo),
-            ("流控", self.flow_combo),
-        )
-        for index, (label_text, widget) in enumerate(labels):
-            row = index // 3
-            column = (index % 3) * 2
-            layout.addWidget(QLabel(label_text), row, column)
-            layout.addWidget(widget, row, column + 1)
-        layout.addWidget(self.dtr_check, 2, 0)
-        layout.addWidget(self.rts_check, 2, 1)
-        layout.addWidget(self.connect_button, 2, 5, alignment=Qt.AlignmentFlag.AlignRight)
+        layout = QFormLayout(self)
+        layout.addRow("端口", self.port_combo)
+        layout.addRow("波特率", self.baud_combo)
+        layout.addRow("数据位", self.bytesize_combo)
+        layout.addRow("校验位", self.parity_combo)
+        layout.addRow("停止位", self.stopbits_combo)
+        layout.addRow("流控", self.flow_combo)
+        line_layout = QHBoxLayout()
+        line_layout.addWidget(self.dtr_check)
+        line_layout.addWidget(self.rts_check)
+        line_layout.addStretch(1)
+        layout.addRow("线路", line_layout)
+        layout.addRow(self.connect_button)
 
     def apply_snapshot(self, snapshot: SessionSnapshot) -> None:
         """根据会话状态更新控件。"""

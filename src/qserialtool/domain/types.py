@@ -12,6 +12,8 @@ Parity: TypeAlias = Literal["N", "E", "O", "M", "S"]
 Theme: TypeAlias = Literal["system", "light", "dark"]
 
 MAX_SEND_HISTORY = 100
+MIN_SIDEBAR_WIDTH = 260
+MAX_SIDEBAR_WIDTH = 480
 MIN_PERIODIC_INTERVAL_MS = 10
 MAX_PERIODIC_INTERVAL_MS = 86_400_000
 

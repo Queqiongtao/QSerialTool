@@ -206,3 +206,27 @@ def test_connection_panel_allows_retry_after_open_error(
     finally:
         tab.controller.close(force=True)
         window.close()
+
+
+def test_session_tab_places_settings_in_left_sidebar_and_toggles(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    assert tab.layout_splitter.widget(0) is tab.sidebar
+    assert tab.layout_splitter.widget(1) is tab.main_content
+    assert tab.connection_panel.parentWidget() is tab.sidebar
+    assert tab.log_panel.parentWidget() is tab.sidebar
+    assert tab.receive_send_splitter.widget(0) is tab.receive_panel
+    assert tab.receive_send_splitter.widget(1) is tab.send_panel
+    assert tab.sidebar.isVisible()
+
+    qtbot.mouseClick(tab.sidebar_toggle_button, Qt.MouseButton.LeftButton)
+    assert not tab.sidebar.isVisible()
+    assert tab.sidebar_toggle_button.text() == "展开设置"
+
+    qtbot.mouseClick(tab.sidebar_toggle_button, Qt.MouseButton.LeftButton)
+    assert tab.sidebar.isVisible()
+    assert tab.sidebar_toggle_button.text() == "收起设置"
+    assert tab.layout_state()[0] is True
+    window.close()

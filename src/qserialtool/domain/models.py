@@ -9,7 +9,9 @@ from .states import SessionState
 from .types import (
     MAX_PERIODIC_INTERVAL_MS,
     MAX_SEND_HISTORY,
+    MAX_SIDEBAR_WIDTH,
     MIN_PERIODIC_INTERVAL_MS,
+    MIN_SIDEBAR_WIDTH,
     SUPPORTED_BYTESIZES,
     SUPPORTED_ENCODINGS,
     SUPPORTED_FLOW_CONTROLS,
@@ -230,6 +232,9 @@ class AppConfig:
     window_state: str | None
     active_session_index: int
     sessions: tuple[SessionPreferences, ...]
+    sidebar_visible: bool = True
+    sidebar_width: int = 320
+    content_splitter_state: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.schema_version) is not int or self.schema_version <= 0:
@@ -249,3 +254,13 @@ class AppConfig:
             raise ValidationError("活动标签索引超出范围。")
         if not self.sessions and self.active_session_index != 0:
             raise ValidationError("没有标签时活动标签索引必须为 0。")
+        _require_bool(self.sidebar_visible, "sidebar_visible")
+        if (
+            type(self.sidebar_width) is not int
+            or not MIN_SIDEBAR_WIDTH <= self.sidebar_width <= MAX_SIDEBAR_WIDTH
+        ):
+            raise ValidationError("侧栏宽度必须在 260 到 480 像素之间。")
+        if self.content_splitter_state is not None and not isinstance(
+            self.content_splitter_state, str
+        ):
+            raise ValidationError("content_splitter_state 必须是字符串或 None。")

@@ -55,6 +55,11 @@ class MainWindow(QMainWindow):
         self._config_store = config_store
         self._session_counter = 0
         self._theme: Theme = initial_config.theme if initial_config is not None else "system"
+        self._sidebar_visible = initial_config.sidebar_visible if initial_config else True
+        self._sidebar_width = initial_config.sidebar_width if initial_config else 320
+        self._content_splitter_state = (
+            initial_config.content_splitter_state if initial_config else None
+        )
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
@@ -137,6 +142,20 @@ class MainWindow(QMainWindow):
             port_provider=self._port_provider,
             preferences=preferences,
         )
+        current_tab = self.tabs.currentWidget()
+        if isinstance(current_tab, SessionTab):
+            layout_state = current_tab.layout_state()
+        else:
+            layout_state = (
+                self._sidebar_visible,
+                self._sidebar_width,
+                self._content_splitter_state,
+            )
+        tab.apply_layout_state(
+            visible=layout_state[0],
+            width=layout_state[1],
+            content_splitter_state=layout_state[2],
+        )
         tab.preferences_changed.connect(self._schedule_save)
         index = self.tabs.addTab(tab, controller.title)
         self.tabs.setCurrentIndex(index)
@@ -172,6 +191,11 @@ class MainWindow(QMainWindow):
     def _save_config(self) -> None:
         if self._config_store is None:
             return
+        active_tab = self.tabs.currentWidget()
+        if isinstance(active_tab, SessionTab):
+            self._sidebar_visible, self._sidebar_width, self._content_splitter_state = (
+                active_tab.layout_state()
+            )
         preferences: list[SessionPreferences] = []
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
@@ -184,6 +208,9 @@ class MainWindow(QMainWindow):
             window_state=bytes(self.saveState().toBase64()).decode("ascii"),
             active_session_index=max(self.tabs.currentIndex(), 0),
             sessions=tuple(preferences),
+            sidebar_visible=self._sidebar_visible,
+            sidebar_width=self._sidebar_width,
+            content_splitter_state=self._content_splitter_state,
         )
         try:
             self._config_store.save(config)

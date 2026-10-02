@@ -45,6 +45,9 @@ def _app_config() -> AppConfig:
         window_state="state",
         active_session_index=0,
         sessions=(preferences,),
+        sidebar_visible=False,
+        sidebar_width=360,
+        content_splitter_state="splitter-state",
     )
 
 

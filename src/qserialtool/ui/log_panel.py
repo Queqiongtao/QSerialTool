@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
-    QHBoxLayout,
+    QGridLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -54,16 +54,16 @@ class LogPanel(QWidget):
         self.export_button = QPushButton("导出当前缓冲")
         self.status_label = QLabel()
 
-        layout = QHBoxLayout(self)
-        layout.addWidget(self.enabled_check)
-        layout.addWidget(QLabel("格式"))
-        layout.addWidget(self.format_combo)
-        layout.addWidget(QLabel("目录"))
-        layout.addWidget(self.directory_edit, 1)
-        layout.addWidget(self.browse_button)
-        layout.addWidget(self.open_button)
-        layout.addWidget(self.export_button)
-        layout.addWidget(self.status_label)
+        layout = QGridLayout(self)
+        layout.addWidget(self.enabled_check, 0, 0)
+        layout.addWidget(QLabel("格式"), 0, 1)
+        layout.addWidget(self.format_combo, 0, 2)
+        layout.addWidget(QLabel("目录"), 1, 0)
+        layout.addWidget(self.directory_edit, 1, 1, 1, 2)
+        layout.addWidget(self.browse_button, 2, 0)
+        layout.addWidget(self.open_button, 2, 1)
+        layout.addWidget(self.export_button, 2, 2)
+        layout.addWidget(self.status_label, 3, 0, 1, 3)
 
     def _connect_changes(self) -> None:
         self.enabled_check.toggled.connect(self._settings_changed)

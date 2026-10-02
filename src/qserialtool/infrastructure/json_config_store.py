@@ -109,6 +109,9 @@ class JsonConfigStore:
             window_state=payload.get("window_state"),
             active_session_index=active_index,
             sessions=tuple(sessions),
+            sidebar_visible=payload.get("sidebar_visible", True),
+            sidebar_width=payload.get("sidebar_width", 320),
+            content_splitter_state=payload.get("content_splitter_state"),
         )
 
     @staticmethod
