@@ -7,6 +7,7 @@ from .codecs import decode_text, format_hex
 from .errors import UserFacingError, ValidationError
 from .states import SessionState
 from .types import (
+    DEFAULT_LINE_ENDING,
     MAX_PERIODIC_INTERVAL_MS,
     MAX_SEND_HISTORY,
     MAX_SIDEBAR_WIDTH,
@@ -20,6 +21,7 @@ from .types import (
     SUPPORTED_PARITIES,
     SUPPORTED_STOPBITS,
     SUPPORTED_THEMES,
+    SUPPORTED_VIEW_MODES,
     DisplayMode,
     EncodingName,
     FlowControl,
@@ -28,6 +30,7 @@ from .types import (
     LogFormat,
     Parity,
     Theme,
+    ViewMode,
 )
 
 
@@ -185,8 +188,9 @@ class SessionPreferences:
     auto_log_directory: str = ""
     send_history: tuple[str, ...] = ()
     send_mode: DisplayMode = "text"
-    line_ending: LineEnding = "none"
+    line_ending: LineEnding = DEFAULT_LINE_ENDING
     periodic_interval_ms: int = 1000
+    view_mode: ViewMode = "split"
 
     def __post_init__(self) -> None:
         _require_string(self.title, "标签标题")
@@ -220,6 +224,8 @@ class SessionPreferences:
             or not MIN_PERIODIC_INTERVAL_MS <= self.periodic_interval_ms <= MAX_PERIODIC_INTERVAL_MS
         ):
             raise ValidationError("周期发送间隔超出允许范围。")
+        if self.view_mode not in SUPPORTED_VIEW_MODES:
+            raise ValidationError("视图模式必须是 split 或 terminal。")
 
 
 @dataclass(frozen=True, slots=True)

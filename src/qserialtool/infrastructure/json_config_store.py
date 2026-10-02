@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from qserialtool.domain import (
+    DEFAULT_LINE_ENDING,
     AppConfig,
     ConfigIOError,
     SerialConfig,
@@ -137,6 +138,7 @@ class JsonConfigStore:
             auto_log_directory=payload.get("auto_log_directory", ""),
             send_history=tuple(history_payload),
             send_mode=payload.get("send_mode", "text"),
-            line_ending=payload.get("line_ending", "none"),
+            line_ending=payload.get("line_ending", DEFAULT_LINE_ENDING),
             periodic_interval_ms=payload.get("periodic_interval_ms", 1000),
+            view_mode=payload.get("view_mode", "split"),
         )

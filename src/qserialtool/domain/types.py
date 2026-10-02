@@ -10,12 +10,14 @@ LogDirection: TypeAlias = Literal["rx", "tx", "system"]
 LogFormat: TypeAlias = Literal["csv", "txt"]
 Parity: TypeAlias = Literal["N", "E", "O", "M", "S"]
 Theme: TypeAlias = Literal["system", "light", "dark"]
+ViewMode: TypeAlias = Literal["split", "terminal"]
 
 MAX_SEND_HISTORY = 100
 MIN_SIDEBAR_WIDTH = 260
 MAX_SIDEBAR_WIDTH = 480
 MIN_PERIODIC_INTERVAL_MS = 10
 MAX_PERIODIC_INTERVAL_MS = 86_400_000
+DEFAULT_LINE_ENDING: LineEnding = "lf"
 
 SUPPORTED_BYTESIZES = frozenset({5, 6, 7, 8})
 SUPPORTED_ENCODINGS = frozenset({"utf-8", "gb18030", "ascii"})
@@ -26,3 +28,4 @@ SUPPORTED_LOG_FORMATS = frozenset({"csv", "txt"})
 SUPPORTED_PARITIES = frozenset({"N", "E", "O", "M", "S"})
 SUPPORTED_STOPBITS = frozenset({1.0, 1.5, 2.0})
 SUPPORTED_THEMES = frozenset({"system", "light", "dark"})
+SUPPORTED_VIEW_MODES = frozenset({"split", "terminal"})

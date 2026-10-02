@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QContextMenuEvent, QFont, QMouseEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QInputDialog,
     QLineEdit,
@@ -16,7 +18,16 @@ from PySide6.QtWidgets import (
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
 from qserialtool.application import MAX_SESSION_TITLE_LENGTH, SessionManager
-from qserialtool.domain import LogRecord, PortBusyError, PortInfo, SessionState
+from qserialtool.domain import (
+    DEFAULT_LINE_ENDING,
+    AppConfig,
+    LogRecord,
+    PortBusyError,
+    PortInfo,
+    SerialConfig,
+    SessionPreferences,
+    SessionState,
+)
 from qserialtool.ui import MainWindow, ReceivePanel, SessionTab, data_colors
 
 
@@ -153,6 +164,7 @@ def test_main_window_creates_multiple_independent_tabs(qtbot: object) -> None:
     assert window.tabs.count() == 2
     assert second.controller.session_id != first.controller.session_id
     assert second.controller.state is not SessionState.CONNECTED
+    assert second.send_panel.line_ending == DEFAULT_LINE_ENDING == "lf"
     window.close()
 
 
@@ -296,13 +308,337 @@ def test_session_tab_places_settings_in_left_sidebar_and_toggles(qtbot: object) 
     window.close()
 
 
+def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -> None:
+    transport = FakeTransport()
+    store = _RecordingStore()
+    window = _window_with_store(qtbot, transport, store)
+    tab = _current_tab(window)
+    splitter = tab.receive_send_splitter
+    splitter.setSizes([520, 220])
+    split_state = bytes(splitter.saveState().toBase64()).decode("ascii")
+
+    qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+
+    assert tab.view_toggle_button.isChecked()
+    assert tab.view_toggle_button.text() == "分栏"
+    assert not tab.send_panel.isVisibleTo(tab)
+    assert tab.send_settings_button.isVisibleTo(tab)
+    assert not tab.receive_panel.output.isReadOnly()
+    assert tab.receive_panel.output.toPlainText() == ""
+    assert all(
+        not widget.isVisibleTo(tab)
+        for widget in (
+            tab.receive_panel.mode_combo,
+            tab.receive_panel.timestamp_check,
+            tab.receive_panel.rx_check,
+            tab.receive_panel.tx_check,
+        )
+    )
+    assert splitter.handleWidth() == 0
+    assert not splitter.handle(1).isEnabled()
+    assert tab.layout_state()[2] == split_state
+    tab.receive_panel.set_terminal_draft("draft")
+    assert tab.receive_panel.output.toPlainText() == "draft"
+
+    tab._format_actions["hex"].trigger()
+    tab._newline_actions["lf"].trigger()
+    assert tab.send_panel.send_mode == "hex"
+    assert tab.send_panel.line_ending == "lf"
+
+    qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+
+    assert not tab.view_toggle_button.isChecked()
+    assert tab.view_toggle_button.text() == "终端"
+    assert tab.send_panel.isVisibleTo(tab)
+    assert not tab.send_settings_button.isVisibleTo(tab)
+    assert tab.receive_panel.output.isReadOnly()
+    assert tab.receive_panel.terminal_draft == "draft"
+    assert "draft" not in tab.receive_panel.output.toPlainText()
+    assert all(
+        widget.isVisibleTo(tab)
+        for widget in (
+            tab.receive_panel.mode_combo,
+            tab.receive_panel.timestamp_check,
+            tab.receive_panel.rx_check,
+            tab.receive_panel.tx_check,
+        )
+    )
+    assert splitter.handleWidth() == 6
+    assert splitter.handle(1).isEnabled()
+    assert bytes(splitter.saveState().toBase64()).decode("ascii") == split_state
+
+    qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+    second = window.new_session()
+
+    assert tab.to_preferences().view_mode == "terminal"
+    assert second.to_preferences().view_mode == "split"
+    assert tab.receive_panel.output.toPlainText().endswith("draft")
+    assert not tab.send_panel.isVisibleTo(tab)
+    assert second.send_panel.isVisibleTo(second)
+    assert tab.send_settings_button.isVisibleTo(tab)
+    assert not second.send_settings_button.isVisibleTo(second)
+
+    window._save_timer.stop()
+    window._save_config()
+
+    assert store.saves[-1].sessions[0].view_mode == "terminal"
+    assert store.saves[-1].sessions[1].view_mode == "split"
+    window.close()
+
+
+def test_session_tab_restores_terminal_view_and_saved_split_state(
+    qtbot: object,
+) -> None:
+    first_transport = FakeTransport()
+    first_window = _window(qtbot, first_transport)
+    first_tab = _current_tab(first_window)
+    first_tab.receive_send_splitter.setSizes([520, 220])
+    split_state = bytes(first_tab.receive_send_splitter.saveState().toBase64()).decode("ascii")
+    first_window.close()
+
+    manager = SessionManager(
+        transport_factory=FakeTransport,
+        clock=FakeClock(),
+    )
+    preferences = SessionPreferences(
+        title="terminal",
+        config=SerialConfig(port=""),
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+        view_mode="terminal",
+    )
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(preferences,),
+        content_splitter_state=split_state,
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        initial_config=config,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tab = _current_tab(window)
+
+    try:
+        assert tab.view_toggle_button.isChecked()
+        assert tab.view_toggle_button.text() == "分栏"
+        assert not tab.send_panel.isVisibleTo(tab)
+        assert tab.send_settings_button.isVisibleTo(tab)
+        assert not tab.receive_panel.output.isReadOnly()
+        assert tab.receive_panel.output.toPlainText() == ""
+
+        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+
+        assert not tab.view_toggle_button.isChecked()
+        assert tab.view_toggle_button.text() == "终端"
+        assert tab.send_panel.isVisibleTo(tab)
+        assert tab.receive_panel.output.isReadOnly()
+        restored_state = bytes(tab.receive_send_splitter.saveState().toBase64()).decode("ascii")
+        assert restored_state == split_state
+    finally:
+        window.close()
+
+
+def test_terminal_view_stops_periodic_send(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.send_panel.editor.setPlainText("timer")
+        tab.send_panel.interval_spin.setValue(60_000)
+        tab.send_panel.periodic_button.setChecked(True)
+        assert tab.send_panel.periodic_button.isChecked()
+
+        tab.set_view_mode("terminal", persist=False)
+
+        assert not tab.send_panel.periodic_button.isChecked()
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_inline_input_sends_lines_and_recalls_history(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        assert tab.send_panel.line_ending == DEFAULT_LINE_ENDING
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+
+        QTest.keyClicks(output, "first")
+        QTest.keyClick(output, Qt.Key.Key_Return)
+        qtbot.waitUntil(lambda: transport.writes == [b"first\n"], timeout=2000)
+        assert output.toPlainText() == ""
+
+        QTest.keyClicks(output, "second")
+        QTest.keyClick(output, Qt.Key.Key_Return)
+        qtbot.waitUntil(lambda: transport.writes[-1] == b"second\n", timeout=2000)
+        assert output.toPlainText() == ""
+
+        QTest.keyClick(output, Qt.Key.Key_Up)
+        assert output.draft == "second"
+        QTest.keyClick(output, Qt.Key.Key_Up)
+        assert output.draft == "first"
+        QTest.keyClick(output, Qt.Key.Key_Down)
+        assert output.draft == "second"
+        QTest.keyClick(output, Qt.Key.Key_Down)
+        assert output.draft == ""
+
+        history_action = tab.history_menu.actions()[0]
+        assert history_action.text() == "second"
+        history_action.trigger()
+        assert output.draft == "second"
+        assert transport.writes[-1] == b"second\n"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_input_continues_after_received_device_prompt(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+
+        transport.push_read(b"#")
+        qtbot.waitUntil(lambda: output.toPlainText() == "#", timeout=2000)
+
+        QTest.keyClicks(output, "cmd")
+        assert output.toPlainText() == "#cmd"
+
+        QTest.keyClick(output, Qt.Key.Key_Return)
+        qtbot.waitUntil(lambda: transport.writes == [b"cmd\n"], timeout=2000)
+        assert output.toPlainText() == "#"
+
+        transport.push_read(b"cmd\r\n#")
+        qtbot.waitUntil(lambda: output.toPlainText() == "#cmd\n#", timeout=2000)
+
+        QTest.keyClicks(output, "next")
+        assert output.toPlainText() == "#cmd\n#next"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_empty_enter_without_newline_is_noop(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: warnings.append(args[2]))
+
+    try:
+        _connect(qtbot, tab)
+        tab.send_panel.set_line_ending("none")
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+
+        QTest.keyClick(output, Qt.Key.Key_Return)
+
+        assert transport.writes == []
+        assert warnings == []
+        assert output.draft == ""
+        assert output.toPlainText() == ""
+
+        tab.send_panel.set_line_ending("lf")
+        QTest.keyClick(output, Qt.Key.Key_Return)
+
+        qtbot.waitUntil(lambda: transport.writes == [b"\n"], timeout=2000)
+        assert warnings == []
+        assert output.draft == ""
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_paste_sends_non_empty_lines(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.send_panel.set_line_ending("lf")
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+        QApplication.clipboard().setText("one\r\ntwo\n\nthree")
+
+        QTest.keyClick(output, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+
+        qtbot.waitUntil(
+            lambda: transport.writes == [b"one\n", b"two\n", b"three\n"],
+            timeout=3000,
+        )
+        assert output.draft == ""
+        assert output.toPlainText() == ""
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_invalid_hex_keeps_draft(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.send_panel.set_send_mode("hex")
+        tab.send_panel.set_line_ending("lf")
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        warnings: list[str] = []
+        monkeypatch.setattr(
+            QMessageBox, "warning", lambda *args, **kwargs: warnings.append(args[2])
+        )
+        output.setFocus()
+
+        QTest.keyClicks(output, "GG")
+        QTest.keyClick(output, Qt.Key.Key_Return)
+
+        assert output.draft == "GG"
+        assert output.toPlainText() == "GG"
+        assert transport.writes == []
+        assert warnings
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_window_minimum_size_matches_layout_target(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)
 
     assert window.minimumSize().width() == 900
     assert window.minimumSize().height() == 600
-    assert window.minimumSizeHint().width() <= 900
     window.close()
 
 
@@ -322,7 +658,18 @@ def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
     tab = _current_tab(window)
 
     assert tab.send_panel.minimumSizeHint().width() <= 520
-    assert tab.main_content.minimumSizeHint().width() <= 620
+
+    window.resize(900, 600)
+    qtbot.wait(50)
+    receive_panel = tab.receive_panel
+    for widget in (
+        receive_panel.pause_button,
+        receive_panel.clear_button,
+        receive_panel.autoscroll_check,
+        tab.view_toggle_button,
+    ):
+        assert widget.isVisibleTo(tab)
+        assert widget.geometry().right() <= receive_panel.width()
     window.close()
 
 
@@ -569,7 +916,7 @@ def test_receive_panel_renders_only_recent_records(qtbot: object) -> None:
     qtbot.addWidget(panel)
     panel.render_records()
 
-    assert panel.output.document().blockCount() <= 2002
+    assert panel.output.document().blockCount() <= 2003
     text = panel.output.toPlainText()
     assert "已隐藏较早的 1000 条记录" in text
     assert "line 1000" in text

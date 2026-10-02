@@ -32,6 +32,7 @@ from .ports import Clock, ConfigStore, LogSink, PortInfo, PortScanner, Transport
 from .state_machine import SessionStateMachine
 from .states import SessionState
 from .types import (
+    DEFAULT_LINE_ENDING,
     DisplayMode,
     EncodingName,
     FlowControl,
@@ -40,9 +41,11 @@ from .types import (
     LogFormat,
     Parity,
     Theme,
+    ViewMode,
 )
 
 __all__ = [
+    "DEFAULT_LINE_ENDING",
     "DEFAULT_MAX_BYTES",
     "DEFAULT_MAX_RECORDS",
     "AppConfig",
@@ -84,6 +87,7 @@ __all__ = [
     "TransportIOError",
     "UserFacingError",
     "ValidationError",
+    "ViewMode",
     "append_line_ending",
     "decode_text",
     "encode_text",

@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 from qserialtool.domain import (
+    DEFAULT_LINE_ENDING,
     AppConfig,
     ErrorCode,
     LogRecord,
@@ -48,6 +49,10 @@ def test_serial_config_defaults() -> None:
     assert config.dtr is True
     assert config.rts is True
     assert config.encoding == "utf-8"
+
+
+def test_session_preferences_default_to_lf_line_ending() -> None:
+    assert _preferences().line_ending == DEFAULT_LINE_ENDING == "lf"
 
 
 @pytest.mark.parametrize(
@@ -186,6 +191,13 @@ def test_session_preferences_rejects_mutable_or_oversized_history() -> None:
 def test_session_preferences_accepts_empty_log_directory() -> None:
     preferences = _preferences()
     assert preferences.auto_log_directory == ""
+
+
+def test_session_preferences_validates_view_mode() -> None:
+    assert _preferences().view_mode == "split"
+    assert _preferences(view_mode="terminal").view_mode == "terminal"
+    with pytest.raises(ValidationError):
+        _preferences(view_mode="fullscreen")
 
 
 def test_app_config_validates_active_session_index() -> None:

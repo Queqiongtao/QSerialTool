@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 
 from qserialtool.application import SessionController
 from qserialtool.domain import (
+    DEFAULT_LINE_ENDING,
+    DisplayMode,
     DomainError,
     LineEnding,
     SessionPreferences,
@@ -63,7 +65,8 @@ class SendPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addLayout(self._build_header())
-        layout.addLayout(self._build_options())
+        self.options_row = self._build_options()
+        layout.addWidget(self.options_row)
         layout.addWidget(self._build_editor())
         self._periodic_timer = QTimer(self)
         self._periodic_timer.timeout.connect(self._periodic_tick)
@@ -71,21 +74,22 @@ class SendPanel(QWidget):
     def _build_header(self) -> QHBoxLayout:
         header = QHBoxLayout()
         header.setSpacing(6)
-        heading = QLabel("发送")
-        heading_font = heading.font()
+        self.heading_label = QLabel("发送")
+        heading_font = self.heading_label.font()
         heading_font.setBold(True)
-        heading.setFont(heading_font)
+        self.heading_label.setFont(heading_font)
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("文本", "text")
         self.mode_combo.addItem("HEX", "hex")
         self.newline_combo = QComboBox()
         for label, value in _NEWLINES:
             self.newline_combo.addItem(label, value)
+        self.newline_combo.setCurrentIndex(self.newline_combo.findData(DEFAULT_LINE_ENDING))
         self.send_button = QPushButton("发送")
         self.send_button.setToolTip("Ctrl+Enter")
         self.send_button.clicked.connect(self.send)
 
-        header.addWidget(heading)
+        header.addWidget(self.heading_label)
         header.addSpacing(12)
         header.addWidget(QLabel("格式"))
         header.addWidget(self.mode_combo)
@@ -95,8 +99,10 @@ class SendPanel(QWidget):
         header.addWidget(self.send_button)
         return header
 
-    def _build_options(self) -> QHBoxLayout:
-        options = QHBoxLayout()
+    def _build_options(self) -> QWidget:
+        row = QWidget()
+        options = QHBoxLayout(row)
+        options.setContentsMargins(0, 0, 0, 0)
         options.setSpacing(6)
         self.history_combo = QComboBox()
         self.history_combo.setSizeAdjustPolicy(
@@ -115,7 +121,7 @@ class SendPanel(QWidget):
         options.addWidget(QLabel("间隔"))
         options.addWidget(self.interval_spin)
         options.addWidget(self.periodic_button)
-        return options
+        return row
 
     def _build_editor(self) -> QPlainTextEdit:
         self.editor = QPlainTextEdit()
@@ -157,6 +163,28 @@ class SendPanel(QWidget):
         """返回按发送顺序排列的历史内容。"""
         return tuple(self._history)
 
+    @property
+    def send_mode(self) -> DisplayMode:
+        """返回当前发送格式。"""
+        return self.mode_combo.currentData()  # type: ignore[return-value]
+
+    @property
+    def line_ending(self) -> LineEnding:
+        """返回当前换行设置。"""
+        return self.newline_combo.currentData()  # type: ignore[return-value]
+
+    def set_send_mode(self, mode: DisplayMode) -> None:
+        """切换发送格式，供终端设置菜单调用。"""
+        index = self.mode_combo.findData(mode)
+        if index >= 0:
+            self.mode_combo.setCurrentIndex(index)
+
+    def set_line_ending(self, line_ending: LineEnding) -> None:
+        """切换换行设置，供终端设置菜单调用。"""
+        index = self.newline_combo.findData(line_ending)
+        if index >= 0:
+            self.newline_combo.setCurrentIndex(index)
+
     def set_connected(self, connected: bool) -> None:
         """根据连接状态启用发送控件。"""
         self._connected = connected
@@ -166,13 +194,16 @@ class SendPanel(QWidget):
             self.periodic_button.setChecked(False)
 
     def send(self) -> None:
-        """手动发送当前内容。"""
+        """手动发送编辑器中的当前内容。"""
         self._send_current(remember=True)
 
-    def _send_current(self, *, remember: bool) -> bool:
-        content = self.editor.toPlainText()
+    def send_content(self, content: str, *, remember: bool = True) -> bool:
+        """发送一行内容；空 payload 视为无操作，失败时返回 False。"""
         try:
-            self._controller.send(self._build_payload())
+            payload = self._build_payload(content)
+            if not payload:
+                return True
+            self._controller.send(payload)
         except DomainError as exc:
             QMessageBox.warning(self, "发送失败", exc.message)
             return False
@@ -180,14 +211,15 @@ class SendPanel(QWidget):
             self._remember_history(content)
         return True
 
-    def _build_payload(self) -> bytes:
-        content = self.editor.toPlainText()
-        mode = self.mode_combo.currentData()
-        if mode == "hex":
+    def _send_current(self, *, remember: bool) -> bool:
+        return self.send_content(self.editor.toPlainText(), remember=remember)
+
+    def _build_payload(self, content: str) -> bytes:
+        if self.send_mode == "hex":
             data = parse_hex(content)
         else:
             data = encode_text(content, self._controller.config.encoding)
-        return append_line_ending(data, self.newline_combo.currentData())
+        return append_line_ending(data, self.line_ending)
 
     def _remember_history(self, content: str) -> None:
         if self._history and self._history[-1] == content:

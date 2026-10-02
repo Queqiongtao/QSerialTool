@@ -3,29 +3,28 @@
 from collections.abc import Callable
 
 from PySide6.QtCore import QSignalBlocker, Signal
-from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
-    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences
+from qserialtool.ui.terminal_output import TerminalOutput
 from qserialtool.ui.theme_manager import data_colors, data_font
 
 # 内存缓冲仍保留 100,000 条，界面只渲染最近若干条，避免整表重插阻塞主线程。
 _MAX_RENDERED_RECORDS = 2000
-_DOCUMENT_BLOCK_LIMIT = _MAX_RENDERED_RECORDS + 2
+_DOCUMENT_BLOCK_LIMIT = _MAX_RENDERED_RECORDS + 3
 
 
 class ReceivePanel(QWidget):
-    """显示当前会话的内存缓冲内容。"""
+    """显示当前会话的内存缓冲内容，并在终端模式承接内联输入。"""
 
     preferences_changed = Signal()
 
@@ -41,6 +40,7 @@ class ReceivePanel(QWidget):
         self._records_provider = records_provider
         self._clear_callback = clear_callback
         self._paused = False
+        self._terminal_mode = False
         self._loading = False
         self._build_ui()
         self._connect_changes()
@@ -82,12 +82,9 @@ class ReceivePanel(QWidget):
         header.addWidget(self.clear_button)
         header.addWidget(self.autoscroll_check)
 
-        self.output = QPlainTextEdit()
-        self.output.setReadOnly(True)
+        self.output = TerminalOutput()
         self.output.setFont(data_font())
         self.output.document().setMaximumBlockCount(_DOCUMENT_BLOCK_LIMIT)
-        self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.output.setMinimumHeight(140)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -98,6 +95,44 @@ class ReceivePanel(QWidget):
     def add_leading_header_widget(self, widget: QWidget) -> None:
         """在接收标题行最左侧插入控件，例如侧栏折叠按钮。"""
         self._header_layout.insertWidget(0, widget)
+
+    def add_trailing_header_widget(self, widget: QWidget) -> None:
+        """在接收标题行末尾追加控件，例如视图模式切换按钮。"""
+        self._header_layout.addWidget(widget)
+
+    def set_terminal_mode(self, enabled: bool) -> None:
+        """启用原始终端显示和日志区内联输入。"""
+        self._terminal_mode = enabled
+        for widget in (
+            self.mode_combo,
+            self.timestamp_check,
+            self.rx_check,
+            self.tx_check,
+        ):
+            widget.setVisible(not enabled)
+        self.output.set_terminal_mode(enabled)
+        self.render_records()
+
+    def set_line_submit_handler(self, handler: Callable[[str], bool]) -> None:
+        """设置终端行提交回调。"""
+        self.output.set_submit_handler(handler)
+
+    def set_history_provider(self, provider: Callable[[], tuple[str, ...]]) -> None:
+        """设置终端输入历史提供者。"""
+        self.output.set_history_provider(provider)
+
+    def set_terminal_draft(self, text: str) -> None:
+        """替换终端输入草稿。"""
+        self.output.set_draft(text)
+
+    @property
+    def terminal_draft(self) -> str:
+        """返回终端输入草稿。"""
+        return self.output.draft
+
+    def focus_terminal_input(self) -> None:
+        """聚焦终端输入行。"""
+        self.output.focus_input()
 
     def _connect_changes(self) -> None:
         self.mode_combo.currentIndexChanged.connect(self._settings_changed)
@@ -127,6 +162,7 @@ class ReceivePanel(QWidget):
                 self.autoscroll_check.setChecked(preferences.autoscroll)
         finally:
             self._loading = False
+        self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.render_records()
 
     @property
@@ -136,8 +172,15 @@ class ReceivePanel(QWidget):
 
     def append_record(self, record: LogRecord) -> None:
         """在未暂停时追加一条记录。"""
-        if self._paused or not self._should_show(record):
+        if self._paused:
             return
+        if self._terminal_mode:
+            if record.direction == "rx":
+                self.output.append_stream(record.text, data_colors().rx)
+            return
+        if not self._should_show(record):
+            return
+        self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self._insert_record(record)
 
     def render_records(self) -> None:
@@ -146,42 +189,33 @@ class ReceivePanel(QWidget):
             return
         records = self._records_provider()
         hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
-        self.output.clear()
-        cursor = self.output.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.output.set_autoscroll(self.autoscroll_check.isChecked())
+        if self._terminal_mode:
+            chunks = tuple(
+                (record.text, data_colors().rx)
+                for record in records[hidden:]
+                if record.direction == "rx"
+            )
+            self.output.replace_stream(chunks)
+            return
+        self.output.begin_batch_update()
         if hidden:
-            self._insert_hint(cursor, f"… 已隐藏较早的 {hidden} 条记录，导出可获取完整缓冲")
+            self._insert_hint(f"… 已隐藏较早的 {hidden} 条记录，导出可获取完整缓冲")
         for record in records[hidden:]:
             if self._should_show(record):
-                self._insert_record(record, cursor)
-        if self.autoscroll_check.isChecked():
-            self.output.moveCursor(QTextCursor.MoveOperation.End)
+                self._insert_record(record)
+        self.output.end_batch_update()
 
     def refresh_theme(self) -> None:
         """主题切换后按新配色重新渲染。"""
         self.render_records()
 
-    def _insert_hint(self, cursor: QTextCursor, text: str) -> None:
+    def _insert_hint(self, text: str) -> None:
         """插入一条灰色提示行，不计入记录。"""
-        text_format = QTextCharFormat()
-        text_format.setForeground(QColor(data_colors().system))
-        cursor.setCharFormat(text_format)
-        cursor.insertText(text + "\n")
+        self.output.append_text(text, data_colors().system)
 
-    def _insert_record(
-        self,
-        record: LogRecord,
-        cursor: QTextCursor | None = None,
-    ) -> None:
-        target = cursor or self.output.textCursor()
-        if cursor is None:
-            target.movePosition(QTextCursor.MoveOperation.End)
-        text_format = QTextCharFormat()
-        text_format.setForeground(QColor(self._color_for(record)))
-        target.setCharFormat(text_format)
-        target.insertText(self._format_record(record) + "\n")
-        if cursor is None and self.autoscroll_check.isChecked():
-            self.output.moveCursor(QTextCursor.MoveOperation.End)
+    def _insert_record(self, record: LogRecord) -> None:
+        self.output.append_text(self._format_record(record), self._color_for(record))
 
     def _format_record(self, record: LogRecord) -> str:
         prefix = ""
@@ -210,6 +244,7 @@ class ReceivePanel(QWidget):
     def _settings_changed(self) -> None:
         if self._loading:
             return
+        self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.render_records()
         self.preferences_changed.emit()
 
@@ -231,4 +266,4 @@ class ReceivePanel(QWidget):
         ):
             return
         self._clear_callback()
-        self.output.clear()
+        self.output.clear_content()

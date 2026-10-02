@@ -61,6 +61,8 @@ bootstrap -> ui -> application -> domain
 - `LogRecord.from_bytes()` 是创建串口记录的标准入口，文本和 HEX 必须从原始字节派生。
 - `SessionSnapshot` 保存会话 ID、标题、状态、配置、最后错误、RX/TX 字节数和累计淘汰记录数。
 - 回调跨线程传递时只使用不可变 `LogRecord` 和 `SessionSnapshot`。
+- `SessionPreferences.view_mode` 保存每个标签的 `split`/`terminal` 视图模式，默认 `split`；旧配置缺少该字段时按 `split` 迁移。
+- `SessionPreferences.line_ending` 保存发送换行策略，默认 `lf`；旧配置缺少该字段时按 `lf` 迁移，显式保存的 `none` 不会被改写。
 
 ### 3.3 外部能力协议
 
@@ -129,7 +131,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 
 ### 6.3 发送
 
-1. UI 将文本编码或解析 HEX，再追加所选 CR/LF。
+1. UI 将文本编码或解析 HEX，再追加所选 CR/LF；构造出的 payload 为空时不调用 controller，也不弹空数据错误。
 2. controller 要求状态为 `connected`，把非空 `bytes` 放入 Worker 的固定大小写队列。
 3. Worker 使用 `write_all()` 在写入超时内发送完整任务。
 4. 成功后创建方向为 `tx` 的 `LogRecord`，进入和接收相同的缓冲、日志和 UI 数据流。
@@ -158,7 +160,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - atomically 替换失败时抛出 `ConfigIOError`。
 - 读取到不可解析或不受支持的内容时，复制为 `settings.corrupt.<UTC时间>.json` 并返回 `None`。
 - 单个无效会话会被跳过，其他有效会话继续加载。
-- `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时同步保存。标签标题取自 `SessionController.title`，可通过 `rename()` 修改（去空白后非空、最长 `MAX_SESSION_TITLE_LENGTH = 40`）；改名后广播快照并随 `SessionPreferences.title` 持久化。
+- `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时同步保存。标签标题取自 `SessionController.title`，可通过 `rename()` 修改（去空白后非空、最长 `MAX_SESSION_TITLE_LENGTH = 40`）；改名后广播快照并随 `SessionPreferences.title` 持久化。`view_mode` 也随标签保存；终端视图会暂存分栏比例，切回分栏时恢复。
 
 ### 7.3 自动日志
 
@@ -175,10 +177,11 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 ## 8. UI 层职责
 
 - `MainWindow`：单行头部，不创建 `QMenuBar` 与 `QToolBar`；标签栏右上角角落控件依次承载“主题”下拉框、“+”新建按钮和“☰”菜单（新建会话/关闭当前会话/退出），菜单动作额外用 `addAction()` 挂到窗口以保留 `Ctrl+T/W/Q`；标签栏通过事件过滤器处理双击重命名与右键菜单（重命名…/关闭当前会话/新建会话），菜单动作作用于被点击的标签，右键坐标取 `QContextMenuEvent.pos()/globalPos()`（该类没有 `position()`/`globalPosition()`），重命名对话框用 `dialog.findChild(QLineEdit)` 设置长度上限（`QInputDialog.lineEdit()` 在 PySide6 未暴露），弹菜单与弹对话框分别抽成 `_show_tab_menu()`/`_ask_session_title()` 便于测试替换；负责标签、窗口状态与配置保存（内容未变化时跳过写盘），窗口最小尺寸 900×600，主题变化后对每个 `SessionTab` 调用 `refresh_theme()`。
-- `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上，接收标题行最左侧是侧栏折叠按钮，底部状态条由 `state_indicator` 色点和 `status_label` 组成；快照标题变化时发出 `title_changed(str)`，由窗口据此刷新标签文本与 tooltip。
+- `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上，接收标题行最左侧是侧栏折叠按钮，右侧依次是“发送设置”和“终端/分栏”；终端视图隐藏 `SendPanel`、收起垂直分隔条，接收区末尾使用原始流内联输入；切回分栏恢复原比例，视图模式随标签持久化，底部状态条由 `state_indicator` 色点和 `status_label` 组成；快照标题变化时发出 `title_changed(str)`，由窗口据此刷新标签文本与 tooltip。
 - `ConnectionPanel`：端口刷新、配置校验、连接/断开和 DTR/RTS；表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标；`set_refresh_active()` 按标签可见性启停轮询，自动枚举周期为 30 s，端口行右侧 `refresh_button` 可手动立即枚举（连接中与端口控件一同禁用）。下拉项显示「设备名 · 描述」并用 `userData` 存设备名，端口框只显示设备名；`current_port()` 解析真正的端口值，`describe_port()` 供状态栏显示带描述的文本，弹窗宽度按最长项自适应（上限 480 px）。
-- `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件使用 `theme_manager.data_font()` 等宽字体，取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()` 在标题行左侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
-- `SendPanel`：两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体。
+- `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件为 `TerminalOutput`。终端模式只按顺序渲染 RX 文本，不应用时间戳/RX/TX 过滤，并隐藏这些控件；草稿不写入记录缓冲或导出。取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()`/`add_trailing_header_widget()` 在标题行两侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
+- `SendPanel`：分栏视图使用两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体。终端视图不再使用独立发送控件，`send_content()` 负责发送内联终端提交的单行文本；构造出的 payload 为空时直接视为成功无操作，不调用 controller。
+- `TerminalOutput`：终端内联输入控件，把单行输入维护为 RX 流末尾的可删除草稿；无应用提示符，支持回车提交、上下键历史、多行粘贴逐行发送。终端采用仅设备回显，提交成功后移除本地草稿，TX 记录不在终端视图渲染。当前只处理基础文本流和 LF/CRLF 换行，不模拟 CR 覆盖、退格、ANSI 或光标定位。
 - `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。
 - `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()` 和 `data_font()` 提供主题解析结果、数据区配色和等宽字体。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。

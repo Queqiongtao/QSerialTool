@@ -2,12 +2,20 @@
 
 import csv
 import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from qserialtool.domain import AppConfig, LogIOError, LogRecord, SerialConfig, SessionPreferences
+from qserialtool.domain import (
+    DEFAULT_LINE_ENDING,
+    AppConfig,
+    LogIOError,
+    LogRecord,
+    SerialConfig,
+    SessionPreferences,
+)
 from qserialtool.infrastructure import CsvLogSink, JsonConfigStore, TxtLogSink
 
 
@@ -37,6 +45,7 @@ def _app_config() -> AppConfig:
         send_mode="hex",
         line_ending="crlf",
         periodic_interval_ms=250,
+        view_mode="terminal",
     )
     return AppConfig(
         schema_version=1,
@@ -76,6 +85,45 @@ def test_json_config_rejects_unknown_schema(tmp_path: Path) -> None:
 
     assert store.load() is None
     assert list(tmp_path.glob("settings.corrupt.*.json"))
+
+
+def test_json_config_defaults_view_mode_for_legacy_files(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    del payload["sessions"][0]["view_mode"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.sessions[0].view_mode == "split"
+
+
+def test_json_config_defaults_line_ending_for_legacy_files(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    del payload["sessions"][0]["line_ending"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.sessions[0].line_ending == DEFAULT_LINE_ENDING == "lf"
+
+
+def test_json_config_preserves_explicit_no_line_ending(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    payload["sessions"][0]["line_ending"] = "none"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.sessions[0].line_ending == "none"
 
 
 def test_csv_log_sink_writes_expected_fields(tmp_path: Path) -> None:
