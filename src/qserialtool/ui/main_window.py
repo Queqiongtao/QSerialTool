@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, QTimer
+from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -10,8 +10,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSizePolicy,
     QTabWidget,
     QToolBar,
+    QToolButton,
     QWidget,
 )
 
@@ -53,10 +55,11 @@ class MainWindow(QMainWindow):
         self._session_manager = session_manager
         self._port_provider = port_provider
         self._config_store = config_store
+        self._last_saved: AppConfig | None = None
         self._session_counter = 0
         self._theme: Theme = initial_config.theme if initial_config is not None else "system"
         self._sidebar_visible = initial_config.sidebar_visible if initial_config else True
-        self._sidebar_width = initial_config.sidebar_width if initial_config else 320
+        self._sidebar_width = initial_config.sidebar_width if initial_config else 300
         self._content_splitter_state = (
             initial_config.content_splitter_state if initial_config else None
         )
@@ -70,14 +73,15 @@ class MainWindow(QMainWindow):
         self.tabs.tabCloseRequested.connect(self._close_tab)
         self.setCentralWidget(self.tabs)
         self.setWindowTitle(f"QSerialTool {__version__}")
-        self.resize(1000, 720)
+        self.resize(1180, 760)
+        self.setMinimumSize(900, 600)
         self._build_actions()
         self._restore_or_create_sessions(initial_config)
 
     def _build_actions(self) -> None:
         new_action = QAction("新建会话", self)
         new_action.setShortcut("Ctrl+T")
-        new_action.triggered.connect(self.new_session)
+        new_action.triggered.connect(self._new_session)
         close_action = QAction("关闭当前会话", self)
         close_action.setShortcut("Ctrl+W")
         close_action.triggered.connect(lambda: self._close_tab(self.tabs.currentIndex()))
@@ -93,6 +97,9 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("主工具栏", self)
         toolbar.addAction(new_action)
         toolbar.addSeparator()
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
         toolbar.addWidget(QLabel("主题"))
         self.theme_combo = QComboBox()
         for label, value in _THEMES:
@@ -102,6 +109,21 @@ class MainWindow(QMainWindow):
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
         toolbar.addWidget(self.theme_combo)
         self.addToolBar(toolbar)
+
+        self.new_tab_button = QToolButton()
+        self.new_tab_button.setText("+")
+        self.new_tab_button.setAutoRaise(True)
+        self.new_tab_button.setToolTip("新建会话 (Ctrl+T)")
+        self.new_tab_button.clicked.connect(self._new_session)
+        self.tabs.setCornerWidget(self.new_tab_button, Qt.Corner.TopRightCorner)
+
+    def _new_session(self, _checked: bool = False) -> None:
+        """菜单、工具栏和标签栏按钮共用的零参数入口。
+
+        QAction 与 QToolButton 的信号会带上一个布尔状态，直接连接 ``new_session``
+        会把它当成 ``preferences`` 传入并报错，因此在此显式吞掉该参数。
+        """
+        self.new_session()
 
     def _restore_or_create_sessions(self, config: AppConfig | None) -> None:
         app = QApplication.instance()
@@ -182,6 +204,10 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, self._theme)
+        for index in range(self.tabs.count()):
+            widget = self.tabs.widget(index)
+            if isinstance(widget, SessionTab):
+                widget.refresh_theme()
         self._schedule_save()
 
     def _schedule_save(self) -> None:
@@ -212,8 +238,11 @@ class MainWindow(QMainWindow):
             sidebar_width=self._sidebar_width,
             content_splitter_state=self._content_splitter_state,
         )
+        if config == self._last_saved:
+            return
         try:
             self._config_store.save(config)
+            self._last_saved = config
         except ConfigIOError as exc:
             self.statusBar().showMessage(exc.message, 5000)
 

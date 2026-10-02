@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -24,6 +25,7 @@ from qserialtool.domain import (
     encode_text,
     parse_hex,
 )
+from qserialtool.ui.theme_manager import data_font
 
 _NEWLINES: tuple[tuple[str, LineEnding], ...] = (
     ("无换行", "none"),
@@ -57,48 +59,72 @@ class SendPanel(QWidget):
         self.set_connected(controller.state is SessionState.CONNECTED)
 
     def _build_ui(self) -> None:
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel("发送格式"))
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addLayout(self._build_header())
+        layout.addLayout(self._build_options())
+        layout.addWidget(self._build_editor())
+        self._periodic_timer = QTimer(self)
+        self._periodic_timer.timeout.connect(self._periodic_tick)
+
+    def _build_header(self) -> QHBoxLayout:
+        header = QHBoxLayout()
+        header.setSpacing(6)
+        heading = QLabel("发送")
+        heading_font = heading.font()
+        heading_font.setBold(True)
+        heading.setFont(heading_font)
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("文本", "text")
         self.mode_combo.addItem("HEX", "hex")
-        toolbar.addWidget(self.mode_combo)
-        toolbar.addWidget(QLabel("换行"))
         self.newline_combo = QComboBox()
         for label, value in _NEWLINES:
             self.newline_combo.addItem(label, value)
-        toolbar.addWidget(self.newline_combo)
-        toolbar.addWidget(QLabel("历史"))
+        self.send_button = QPushButton("发送")
+        self.send_button.setToolTip("Ctrl+Enter")
+        self.send_button.clicked.connect(self.send)
+
+        header.addWidget(heading)
+        header.addSpacing(12)
+        header.addWidget(QLabel("格式"))
+        header.addWidget(self.mode_combo)
+        header.addWidget(QLabel("换行"))
+        header.addWidget(self.newline_combo)
+        header.addStretch(1)
+        header.addWidget(self.send_button)
+        return header
+
+    def _build_options(self) -> QHBoxLayout:
+        options = QHBoxLayout()
+        options.setSpacing(6)
         self.history_combo = QComboBox()
-        self.history_combo.setMinimumWidth(160)
-        toolbar.addWidget(self.history_combo)
+        self.history_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.history_combo.setMinimumContentsLength(12)
+        self.history_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(10, 86_400_000)
         self.interval_spin.setValue(1000)
         self.interval_spin.setSuffix(" ms")
-        toolbar.addWidget(self.interval_spin)
         self.periodic_button = QPushButton("开始周期")
         self.periodic_button.setCheckable(True)
-        toolbar.addWidget(self.periodic_button)
-        toolbar.addStretch(1)
-        self.send_button = QPushButton("发送")
-        self.send_button.setToolTip("Ctrl+Enter")
-        self.send_button.clicked.connect(self.send)
-        toolbar.addWidget(self.send_button)
+        options.addWidget(QLabel("历史"))
+        options.addWidget(self.history_combo, 1)
+        options.addWidget(QLabel("间隔"))
+        options.addWidget(self.interval_spin)
+        options.addWidget(self.periodic_button)
+        return options
 
+    def _build_editor(self) -> QPlainTextEdit:
         self.editor = QPlainTextEdit()
         self.editor.setPlaceholderText("输入待发送内容，按 Ctrl+Enter 发送")
-        self.editor.setMinimumHeight(80)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(toolbar)
-        layout.addWidget(self.editor)
-
+        self.editor.setMinimumHeight(120)
+        self.editor.setFont(data_font())
         shortcut = QShortcut(QKeySequence("Ctrl+Return"), self.editor)
         shortcut.activated.connect(self.send)
-        self._periodic_timer = QTimer(self)
-        self._periodic_timer.timeout.connect(self._periodic_tick)
+        return self.editor
 
     def _connect_changes(self) -> None:
         self.mode_combo.currentIndexChanged.connect(self._settings_changed)

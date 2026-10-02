@@ -146,7 +146,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 
 ### 7.1 内存缓冲
 
-`RecordBuffer` 默认同时限制 `100,000` 条记录和 `32 MiB` 原始字节。超过任一限制时从最旧记录开始淘汰；单条记录超过总字节上限时抛出 `BufferCapacityError`。`clear()` 只删除当前记录，不重置累计淘汰数。
+`RecordBuffer` 默认同时限制 `100,000` 条记录和 `32 MiB` 原始字节。超过任一限制时从最旧记录开始淘汰；单条记录超过总字节上限时抛出 `BufferCapacityError`。`clear()` 只删除当前记录，不重置累计淘汰数。`ReceivePanel` 只渲染最近 `2000` 条并把隐藏条数写成提示行，`QPlainTextEdit` 文档块上限固定为 `2002`，避免整表重插阻塞主线程。
 
 ### 7.2 配置持久化
 
@@ -158,7 +158,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - atomically 替换失败时抛出 `ConfigIOError`。
 - 读取到不可解析或不受支持的内容时，复制为 `settings.corrupt.<UTC时间>.json` 并返回 `None`。
 - 单个无效会话会被跳过，其他有效会话继续加载。
-- `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，并在退出时同步保存。
+- `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时同步保存。
 
 ### 7.3 自动日志
 
@@ -174,12 +174,13 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 
 ## 8. UI 层职责
 
-- `MainWindow`：标签、主题、菜单/快捷键、窗口状态和配置保存。
-- `SessionTab`：组合连接、接收、发送和日志面板，显示 RX/TX 状态。
-- `ConnectionPanel`：端口刷新、配置校验、连接/断开和 DTR/RTS。
-- `ReceivePanel`：内存缓冲显示、暂停、过滤、清屏、自动滚动。
-- `SendPanel`：文本/HEX 编码、换行、历史和周期发送。
-- `LogPanel`：自动日志设置、打开目录和导出当前缓冲。
+- `MainWindow`：标签、主题、菜单/快捷键、标签栏“+”按钮、窗口状态和配置保存（内容未变化时跳过写盘）；窗口最小尺寸为 900×600，主题变化后对每个 `SessionTab` 调用 `refresh_theme()`。
+- `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上，接收标题行最左侧是侧栏折叠按钮，底部状态条由 `state_indicator` 色点和 `status_label` 组成。
+- `ConnectionPanel`：端口刷新、配置校验、连接/断开和 DTR/RTS；表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标，`set_refresh_active()` 按标签可见性启停轮询。
+- `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件使用 `theme_manager.data_font()` 等宽字体，取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()` 在标题行左侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
+- `SendPanel`：两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体。
+- `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。
+- `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()` 和 `data_font()` 提供主题解析结果、数据区配色和等宽字体。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。
 
 界面组件只通过 controller 的公共方法执行动作；跨线程 UI 更新必须经过 queued signal 或 Qt 定时器，禁止直接从 Worker 修改控件。

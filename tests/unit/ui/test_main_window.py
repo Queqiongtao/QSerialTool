@@ -1,12 +1,15 @@
 """测试主窗口、连接面板、收发面板和多标签交互。"""
 
+from datetime import datetime, timezone
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QMessageBox, QScrollArea
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
 from qserialtool.application import SessionManager
-from qserialtool.domain import PortBusyError, SessionState
-from qserialtool.ui import MainWindow, SessionTab
+from qserialtool.domain import LogRecord, PortBusyError, SessionState
+from qserialtool.ui import MainWindow, ReceivePanel, SessionTab, data_colors
 
 
 def _window(qtbot: object, transport: FakeTransport) -> MainWindow:
@@ -49,6 +52,38 @@ def _disconnect(qtbot: object, tab: SessionTab) -> None:
             lambda: tab.controller.state is SessionState.DISCONNECTED,
             timeout=2000,
         )
+
+
+class _RecordingStore:
+    """记录每次保存的配置，用于验证空闲状态不会重复写盘。"""
+
+    def __init__(self) -> None:
+        self.saves: list[object] = []
+
+    def load(self) -> None:
+        return None
+
+    def save(self, config: object) -> None:
+        self.saves.append(config)
+
+
+def _window_with_store(
+    qtbot: object,
+    transport: FakeTransport,
+    store: _RecordingStore,
+) -> MainWindow:
+    manager = SessionManager(
+        transport_factory=lambda: transport,
+        clock=FakeClock(),
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: ("COM1", "COM2"),
+        config_store=store,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    return window
 
 
 def test_main_window_connects_sends_receives_and_disconnects(qtbot: object) -> None:
@@ -215,8 +250,11 @@ def test_session_tab_places_settings_in_left_sidebar_and_toggles(qtbot: object) 
 
     assert tab.layout_splitter.widget(0) is tab.sidebar
     assert tab.layout_splitter.widget(1) is tab.main_content
-    assert tab.connection_panel.parentWidget() is tab.sidebar
-    assert tab.log_panel.parentWidget() is tab.sidebar
+    assert isinstance(tab.sidebar, QScrollArea)
+    assert tab.sidebar.widget() is tab.sidebar_content
+    assert tab.connection_panel.parentWidget() is tab.sidebar_content
+    assert tab.log_panel.parentWidget() is tab.sidebar_content
+    assert tab.sidebar_toggle_button.parentWidget() is tab.receive_panel
     assert tab.receive_send_splitter.widget(0) is tab.receive_panel
     assert tab.receive_send_splitter.widget(1) is tab.send_panel
     assert tab.sidebar.isVisible()
@@ -230,3 +268,147 @@ def test_session_tab_places_settings_in_left_sidebar_and_toggles(qtbot: object) 
     assert tab.sidebar_toggle_button.text() == "收起设置"
     assert tab.layout_state()[0] is True
     window.close()
+
+
+def test_window_minimum_size_matches_layout_target(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+
+    assert window.minimumSize().width() == 900
+    assert window.minimumSize().height() == 600
+    assert window.minimumSizeHint().width() <= 900
+    window.close()
+
+
+def test_data_panels_use_monospace_font(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    assert tab.receive_panel.output.font().styleHint() == QFont.StyleHint.Monospace
+    assert tab.send_panel.editor.font().styleHint() == QFont.StyleHint.Monospace
+    window.close()
+
+
+def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    assert tab.send_panel.minimumSizeHint().width() <= 520
+    assert tab.main_content.minimumSizeHint().width() <= 620
+    window.close()
+
+
+def test_new_session_action_and_tab_button_create_sessions(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+
+    menu = window.menuBar().actions()[0].menu()
+    assert menu is not None
+    action = next(item for item in menu.actions() if item.text() == "新建会话")
+    action.trigger()
+    assert window.tabs.count() == 2
+
+    qtbot.mouseClick(window.new_tab_button, Qt.MouseButton.LeftButton)
+    assert window.tabs.count() == 3
+    window.close()
+
+
+def test_status_indicator_tracks_session_state(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: None)
+
+    try:
+        assert data_colors().idle in tab.state_indicator.styleSheet()
+        _connect(qtbot, tab)
+        assert data_colors().connected in tab.state_indicator.styleSheet()
+    finally:
+        _disconnect(qtbot, tab)
+        window.close()
+
+
+def test_status_bar_follows_port_input_while_disconnected(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        tab.connection_panel.port_combo.setEditText("COM9")
+        assert "COM9" in tab.status_label.text()
+    finally:
+        window.close()
+
+
+def test_idle_port_refresh_keeps_input_and_skips_saves(qtbot: object) -> None:
+    transport = FakeTransport()
+    store = _RecordingStore()
+    window = _window_with_store(qtbot, transport, store)
+    tab = _current_tab(window)
+
+    try:
+        qtbot.waitUntil(lambda: len(store.saves) >= 1, timeout=2000)
+        qtbot.wait(700)
+        editor = tab.connection_panel.port_combo.lineEdit()
+        assert editor is not None
+        assert tab.connection_panel.port_combo.currentText() == "COM1"
+        editor.setCursorPosition(2)
+        baseline = len(store.saves)
+
+        qtbot.wait(2100)
+
+        assert editor.cursorPosition() == 2
+        assert len(store.saves) == baseline
+    finally:
+        window.close()
+
+
+def test_background_tab_stops_port_refresh(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    first = _current_tab(window)
+
+    try:
+        assert first.connection_panel._port_timer.isActive()
+        second = window.new_session()
+        qtbot.waitUntil(
+            lambda: not first.connection_panel._port_timer.isActive(),
+            timeout=2000,
+        )
+        assert second.connection_panel._port_timer.isActive()
+
+        window.tabs.setCurrentIndex(0)
+        qtbot.waitUntil(
+            first.connection_panel._port_timer.isActive,
+            timeout=2000,
+        )
+    finally:
+        window.close()
+
+
+def test_receive_panel_renders_only_recent_records(qtbot: object) -> None:
+    timestamp = datetime(2026, 10, 2, 12, 0, 0, tzinfo=timezone.utc)
+    records = tuple(
+        LogRecord.from_bytes(
+            timestamp_utc=timestamp,
+            direction="rx",
+            raw=f"line {index}".encode(),
+            encoding="utf-8",
+            session_id="render-cap",
+        )
+        for index in range(3000)
+    )
+    panel = ReceivePanel(
+        records_provider=lambda: records,
+        clear_callback=lambda: 0,
+    )
+    qtbot.addWidget(panel)
+    panel.render_records()
+
+    assert panel.output.document().blockCount() <= 2002
+    text = panel.output.toPlainText()
+    assert "已隐藏较早的 1000 条记录" in text
+    assert "line 1000" in text
+    assert "line 999" not in text

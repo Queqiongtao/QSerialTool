@@ -7,10 +7,11 @@ from .qt_bridge import QtSessionBridge
 from .receive_panel import ReceivePanel
 from .send_panel import SendPanel
 from .session_tab import SessionTab
-from .theme_manager import apply_theme, resolve_theme
+from .theme_manager import DataColors, apply_theme, data_colors, resolve_theme, resolved_theme
 
 __all__ = [
     "ConnectionPanel",
+    "DataColors",
     "LogPanel",
     "MainWindow",
     "QtSessionBridge",
@@ -18,5 +19,7 @@ __all__ = [
     "SendPanel",
     "SessionTab",
     "apply_theme",
+    "data_colors",
     "resolve_theme",
+    "resolved_theme",
 ]

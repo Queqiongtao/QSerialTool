@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QSignalBlocker, QTimer, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -49,6 +49,7 @@ class ConnectionPanel(QGroupBox):
         self._controller = controller
         self._port_provider = port_provider
         self._updating = False
+        self._port_items: tuple[str, ...] = ()
         self._build_ui()
         self._port_timer = QTimer(self)
         self._port_timer.setInterval(1000)
@@ -93,6 +94,7 @@ class ConnectionPanel(QGroupBox):
             combo.currentIndexChanged.connect(self._config_changed)
 
         layout = QFormLayout(self)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addRow("端口", self.port_combo)
         layout.addRow("波特率", self.baud_combo)
         layout.addRow("数据位", self.bytesize_combo)
@@ -180,20 +182,40 @@ class ConnectionPanel(QGroupBox):
         except DomainError as exc:
             QMessageBox.warning(self, "线路控制失败", exc.message)
 
+    def set_refresh_active(self, active: bool) -> None:
+        """按标签可见性启停端口刷新，避免后台标签持续枚举设备。"""
+        if active:
+            if not self._port_timer.isActive():
+                self._port_timer.start()
+            self._refresh_ports()
+        else:
+            self._port_timer.stop()
+
     def _refresh_ports(self) -> None:
+        """按需刷新端口列表，并在端口集合未变化时直接返回。"""
         if self._controller.state not in {SessionState.DISCONNECTED, SessionState.ERROR}:
             return
-        current = self.port_combo.currentText()
+        if self.port_combo.view().isVisible():
+            return
         try:
-            ports = self._port_provider()
+            ports = tuple(self._port_provider())
         except Exception:
             return
-        self.port_combo.clear()
-        self.port_combo.addItems(ports)
-        if current:
-            self.port_combo.setEditText(current)
-        elif ports:
-            self.port_combo.setCurrentIndex(0)
+        if ports == self._port_items:
+            return
+        self._port_items = ports
+        editor = self.port_combo.lineEdit()
+        caret = editor.cursorPosition() if editor is not None else 0
+        current = self.port_combo.currentText()
+        with QSignalBlocker(self.port_combo):
+            self.port_combo.clear()
+            self.port_combo.addItems(ports)
+            if current:
+                self.port_combo.setEditText(current)
+            elif ports:
+                self.port_combo.setCurrentIndex(0)
+        if editor is not None:
+            editor.setCursorPosition(min(caret, len(editor.text())))
 
     def _set_editable(self, enabled: bool) -> None:
         for widget in (

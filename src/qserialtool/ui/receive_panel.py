@@ -17,6 +17,11 @@ from PySide6.QtWidgets import (
 )
 
 from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences
+from qserialtool.ui.theme_manager import data_colors, data_font
+
+# 内存缓冲仍保留 100,000 条，界面只渲染最近若干条，避免整表重插阻塞主线程。
+_MAX_RENDERED_RECORDS = 2000
+_DOCUMENT_BLOCK_LIMIT = _MAX_RENDERED_RECORDS + 2
 
 
 class ReceivePanel(QWidget):
@@ -44,7 +49,13 @@ class ReceivePanel(QWidget):
         self.render_records()
 
     def _build_ui(self) -> None:
-        toolbar = QHBoxLayout()
+        header = QHBoxLayout()
+        header.setSpacing(6)
+        self._header_layout = header
+        heading = QLabel("接收")
+        heading_font = heading.font()
+        heading_font.setBold(True)
+        heading.setFont(heading_font)
         self.mode_combo = QComboBox()
         self.mode_combo.addItem("文本", "text")
         self.mode_combo.addItem("HEX", "hex")
@@ -60,25 +71,33 @@ class ReceivePanel(QWidget):
         self.autoscroll_check = QCheckBox("自动滚动")
         self.autoscroll_check.setChecked(True)
 
-        toolbar.addWidget(QLabel("显示"))
-        toolbar.addWidget(self.mode_combo)
-        toolbar.addWidget(self.timestamp_check)
-        toolbar.addWidget(self.rx_check)
-        toolbar.addWidget(self.tx_check)
-        toolbar.addStretch(1)
-        toolbar.addWidget(self.pause_button)
-        toolbar.addWidget(self.clear_button)
-        toolbar.addWidget(self.autoscroll_check)
+        header.addWidget(heading)
+        header.addSpacing(12)
+        header.addWidget(self.mode_combo)
+        header.addWidget(self.timestamp_check)
+        header.addWidget(self.rx_check)
+        header.addWidget(self.tx_check)
+        header.addStretch(1)
+        header.addWidget(self.pause_button)
+        header.addWidget(self.clear_button)
+        header.addWidget(self.autoscroll_check)
 
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
-        self.output.document().setMaximumBlockCount(100_000)
+        self.output.setFont(data_font())
+        self.output.document().setMaximumBlockCount(_DOCUMENT_BLOCK_LIMIT)
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.output.setMinimumHeight(140)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addLayout(toolbar)
+        layout.setSpacing(6)
+        layout.addLayout(header)
         layout.addWidget(self.output)
+
+    def add_leading_header_widget(self, widget: QWidget) -> None:
+        """在接收标题行最左侧插入控件，例如侧栏折叠按钮。"""
+        self._header_layout.insertWidget(0, widget)
 
     def _connect_changes(self) -> None:
         self.mode_combo.currentIndexChanged.connect(self._settings_changed)
@@ -122,17 +141,32 @@ class ReceivePanel(QWidget):
         self._insert_record(record)
 
     def render_records(self) -> None:
-        """从内存缓冲重新渲染全部记录。"""
+        """重新渲染最近的记录，超出渲染上限的部分用提示行说明。"""
         if self._paused:
             return
+        records = self._records_provider()
+        hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
         self.output.clear()
         cursor = self.output.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        for record in self._records_provider():
+        if hidden:
+            self._insert_hint(cursor, f"… 已隐藏较早的 {hidden} 条记录，导出可获取完整缓冲")
+        for record in records[hidden:]:
             if self._should_show(record):
                 self._insert_record(record, cursor)
         if self.autoscroll_check.isChecked():
             self.output.moveCursor(QTextCursor.MoveOperation.End)
+
+    def refresh_theme(self) -> None:
+        """主题切换后按新配色重新渲染。"""
+        self.render_records()
+
+    def _insert_hint(self, cursor: QTextCursor, text: str) -> None:
+        """插入一条灰色提示行，不计入记录。"""
+        text_format = QTextCharFormat()
+        text_format.setForeground(QColor(data_colors().system))
+        cursor.setCharFormat(text_format)
+        cursor.insertText(text + "\n")
 
     def _insert_record(
         self,
@@ -165,13 +199,13 @@ class ReceivePanel(QWidget):
             return self.tx_check.isChecked()
         return True
 
-    @staticmethod
-    def _color_for(record: LogRecord) -> str:
+    def _color_for(self, record: LogRecord) -> str:
+        colors = data_colors()
         if record.direction == "rx":
-            return "#1f8b4c"
+            return colors.rx
         if record.direction == "tx":
-            return "#2563a8"
-        return "#7b7b7b"
+            return colors.tx
+        return colors.system
 
     def _settings_changed(self) -> None:
         if self._loading:

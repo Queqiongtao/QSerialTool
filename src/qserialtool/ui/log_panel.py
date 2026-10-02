@@ -2,17 +2,19 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QGridLayout,
+    QGroupBox,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QWidget,
 )
 
@@ -20,7 +22,7 @@ from qserialtool.application import SessionController, default_log_directory
 from qserialtool.domain import DomainError, LogFormat, SessionSnapshot, SessionState
 
 
-class LogPanel(QWidget):
+class LogPanel(QGroupBox):
     """配置自动日志、打开日志目录并导出内存缓冲。"""
 
     preferences_changed = Signal()
@@ -31,7 +33,7 @@ class LogPanel(QWidget):
         controller: SessionController,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__("日志与导出", parent)
         self._controller = controller
         self._loading = False
         self._build_ui()
@@ -53,16 +55,19 @@ class LogPanel(QWidget):
         self.open_button = QPushButton("打开目录")
         self.export_button = QPushButton("导出当前缓冲")
         self.status_label = QLabel()
+        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._status_text = ""
 
         layout = QGridLayout(self)
         layout.addWidget(self.enabled_check, 0, 0)
         layout.addWidget(QLabel("格式"), 0, 1)
         layout.addWidget(self.format_combo, 0, 2)
         layout.addWidget(QLabel("目录"), 1, 0)
-        layout.addWidget(self.directory_edit, 1, 1, 1, 2)
-        layout.addWidget(self.browse_button, 2, 0)
-        layout.addWidget(self.open_button, 2, 1)
-        layout.addWidget(self.export_button, 2, 2)
+        layout.addWidget(self.directory_edit, 1, 1)
+        layout.addWidget(self.browse_button, 1, 2)
+        layout.addWidget(self.export_button, 2, 0, 1, 2)
+        layout.addWidget(self.open_button, 2, 2)
         layout.addWidget(self.status_label, 3, 0, 1, 3)
 
     def _connect_changes(self) -> None:
@@ -87,6 +92,7 @@ class LogPanel(QWidget):
             index = self.format_combo.findData(log_format)
             self.format_combo.setCurrentIndex(index if index >= 0 else 0)
             self.directory_edit.setText(directory or str(default_log_directory()))
+            self.directory_edit.setCursorPosition(0)
         finally:
             self._loading = False
 
@@ -98,9 +104,32 @@ class LogPanel(QWidget):
         self.directory_edit.setEnabled(editable)
         self.browse_button.setEnabled(editable)
         if self._controller.log_path is not None:
-            self.status_label.setText(f"日志：{self._controller.log_path}")
+            self._set_status(f"日志：{self._controller.log_path}")
         else:
-            self.status_label.clear()
+            self._set_status("")
+
+    def _set_status(self, text: str) -> None:
+        """设置状态文本，始终保留完整提示并按宽度做中间省略。"""
+        self._status_text = text
+        self.status_label.setToolTip(text)
+        self._apply_status_elide()
+
+    def _apply_status_elide(self) -> None:
+        width = self.status_label.width()
+        if width <= 0:
+            elided = self._status_text
+        else:
+            elided = self.status_label.fontMetrics().elidedText(
+                self._status_text,
+                Qt.TextElideMode.ElideMiddle,
+                width,
+            )
+        if elided != self.status_label.text():
+            self.status_label.setText(elided)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._apply_status_elide()
 
     def preferences(self) -> tuple[bool, LogFormat, str]:
         """返回当前自动日志偏好。"""
@@ -133,6 +162,7 @@ class LogPanel(QWidget):
         )
         if selected:
             self.directory_edit.setText(selected)
+            self.directory_edit.setCursorPosition(0)
             self._settings_changed()
 
     def _open_directory(self) -> None:
@@ -163,4 +193,4 @@ class LogPanel(QWidget):
         except DomainError as exc:
             QMessageBox.warning(self, "导出失败", exc.message)
             return
-        self.status_label.setText(f"已导出 {count} 条：{path}")
+        self._set_status(f"已导出 {count} 条：{path}")
