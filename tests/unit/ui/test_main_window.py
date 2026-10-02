@@ -389,11 +389,57 @@ def test_idle_port_refresh_keeps_input_and_skips_saves(qtbot: object) -> None:
         editor.setCursorPosition(2)
         baseline = len(store.saves)
 
-        qtbot.wait(2100)
+        assert tab.connection_panel._port_timer.interval() == 30_000
+        for _ in range(3):
+            tab.connection_panel._refresh_ports()
 
         assert editor.cursorPosition() == 2
         assert len(store.saves) == baseline
     finally:
+        window.close()
+
+
+def test_port_refresh_button_scans_immediately(qtbot: object) -> None:
+    transport = FakeTransport()
+    ports = ["COM1"]
+    manager = SessionManager(
+        transport_factory=lambda: transport,
+        clock=FakeClock(),
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: tuple(ports),
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tab = _current_tab(window)
+
+    try:
+        tab.connection_panel.port_combo.setEditText("COM9")
+        ports.append("COM2")
+
+        qtbot.mouseClick(tab.connection_panel.refresh_button, Qt.MouseButton.LeftButton)
+
+        combo = tab.connection_panel.port_combo
+        assert combo.findText("COM2") >= 0
+        assert combo.currentText() == "COM9"
+    finally:
+        window.close()
+
+
+def test_port_refresh_button_disabled_while_connected(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        assert tab.connection_panel.refresh_button.isEnabled()
+        _connect(qtbot, tab)
+        assert not tab.connection_panel.refresh_button.isEnabled()
+        _disconnect(qtbot, tab)
+        qtbot.waitUntil(tab.connection_panel.refresh_button.isEnabled, timeout=2000)
+    finally:
+        tab.controller.close(force=True)
         window.close()
 
 

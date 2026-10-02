@@ -176,7 +176,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 
 - `MainWindow`：单行头部，不创建 `QMenuBar` 与 `QToolBar`；标签栏右上角角落控件依次承载“主题”下拉框、“+”新建按钮和“☰”菜单（新建会话/关闭当前会话/退出），菜单动作额外用 `addAction()` 挂到窗口以保留 `Ctrl+T/W/Q`；负责标签、窗口状态与配置保存（内容未变化时跳过写盘），窗口最小尺寸 900×600，主题变化后对每个 `SessionTab` 调用 `refresh_theme()`。
 - `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上，接收标题行最左侧是侧栏折叠按钮，底部状态条由 `state_indicator` 色点和 `status_label` 组成。
-- `ConnectionPanel`：端口刷新、配置校验、连接/断开和 DTR/RTS；表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标，`set_refresh_active()` 按标签可见性启停轮询。
+- `ConnectionPanel`：端口刷新、配置校验、连接/断开和 DTR/RTS；表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标；`set_refresh_active()` 按标签可见性启停轮询，自动枚举周期为 30 s，端口行右侧 `refresh_button` 可手动立即枚举（连接中与端口控件一同禁用）。
 - `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件使用 `theme_manager.data_font()` 等宽字体，取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()` 在标题行左侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
 - `SendPanel`：两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体。
 - `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。

@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMessageBox,
     QPushButton,
+    QStyle,
+    QToolButton,
     QWidget,
 )
 
@@ -32,6 +34,9 @@ _FLOW_CONTROLS = (
     ("DSR/DTR", "dsrdtr"),
 )
 
+# 自动枚举周期放宽到 30 s，热插拔主要靠端口行右侧的刷新按钮即时感知。
+_PORT_REFRESH_INTERVAL_MS = 30_000
+
 
 class ConnectionPanel(QGroupBox):
     config_changed = Signal()
@@ -52,7 +57,7 @@ class ConnectionPanel(QGroupBox):
         self._port_items: tuple[str, ...] = ()
         self._build_ui()
         self._port_timer = QTimer(self)
-        self._port_timer.setInterval(1000)
+        self._port_timer.setInterval(_PORT_REFRESH_INTERVAL_MS)
         self._port_timer.timeout.connect(self._refresh_ports)
         self._port_timer.start()
         self._refresh_ports()
@@ -62,6 +67,13 @@ class ConnectionPanel(QGroupBox):
         self.port_combo = QComboBox()
         self.port_combo.setEditable(True)
         self.port_combo.setMinimumWidth(120)
+        self.refresh_button = QToolButton()
+        self.refresh_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
+        self.refresh_button.setToolTip("刷新端口列表")
+        self.refresh_button.setFixedSize(24, 24)
+        self.refresh_button.clicked.connect(self._refresh_ports)
         self.baud_combo = QComboBox()
         self.baud_combo.setEditable(True)
         self.baud_combo.addItems(_BAUDRATES)
@@ -95,7 +107,13 @@ class ConnectionPanel(QGroupBox):
 
         layout = QFormLayout(self)
         layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        layout.addRow("端口", self.port_combo)
+        port_row = QWidget()
+        port_row_layout = QHBoxLayout(port_row)
+        port_row_layout.setContentsMargins(0, 0, 0, 0)
+        port_row_layout.setSpacing(4)
+        port_row_layout.addWidget(self.port_combo, 1)
+        port_row_layout.addWidget(self.refresh_button)
+        layout.addRow("端口", port_row)
         layout.addRow("波特率", self.baud_combo)
         layout.addRow("数据位", self.bytesize_combo)
         layout.addRow("校验位", self.parity_combo)
@@ -220,6 +238,7 @@ class ConnectionPanel(QGroupBox):
     def _set_editable(self, enabled: bool) -> None:
         for widget in (
             self.port_combo,
+            self.refresh_button,
             self.baud_combo,
             self.bytesize_combo,
             self.parity_combo,
