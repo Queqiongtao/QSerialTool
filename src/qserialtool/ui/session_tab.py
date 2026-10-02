@@ -21,6 +21,7 @@ from qserialtool.application import SessionController
 from qserialtool.domain import (
     DomainError,
     LogRecord,
+    PortInfo,
     SessionPreferences,
     SessionSnapshot,
     SessionState,
@@ -46,13 +47,14 @@ class SessionTab(QWidget):
     """组合左侧连接设置和右侧收发主区域。"""
 
     preferences_changed = Signal()
+    title_changed = Signal(str)
 
     def __init__(
         self,
         *,
         controller: SessionController,
         bridge: QtSessionBridge,
-        port_provider: Callable[[], tuple[str, ...]],
+        port_provider: Callable[[], tuple[PortInfo, ...]],
         preferences: SessionPreferences | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -60,6 +62,7 @@ class SessionTab(QWidget):
         self.controller = controller
         self._bridge = bridge
         self._snapshot: SessionSnapshot | None = None
+        self._title = ""
         self._last_error_key: tuple[object, str | None] | None = None
         self._sidebar_visible = True
         self._sidebar_width = 300
@@ -70,7 +73,7 @@ class SessionTab(QWidget):
 
     def _build_ui(
         self,
-        port_provider: Callable[[], tuple[str, ...]],
+        port_provider: Callable[[], tuple[PortInfo, ...]],
         preferences: SessionPreferences | None,
     ) -> None:
         self._build_panels(port_provider, preferences)
@@ -86,7 +89,7 @@ class SessionTab(QWidget):
 
     def _build_panels(
         self,
-        port_provider: Callable[[], tuple[str, ...]],
+        port_provider: Callable[[], tuple[PortInfo, ...]],
         preferences: SessionPreferences | None,
     ) -> None:
         self.connection_panel = ConnectionPanel(
@@ -182,9 +185,10 @@ class SessionTab(QWidget):
             return
         port = snapshot.config.port.strip()
         if not port and snapshot.state in {SessionState.DISCONNECTED, SessionState.ERROR}:
-            port = self.connection_panel.port_combo.currentText().strip()
+            port = self.connection_panel.current_port()
+        port_label = self.connection_panel.describe_port(port) if port else "未选择端口"
         status_text = (
-            f"{_STATE_LABELS[snapshot.state]} | {port or '未选择端口'} | "
+            f"{_STATE_LABELS[snapshot.state]} | {port_label} | "
             f"RX {snapshot.rx_bytes} B | TX {snapshot.tx_bytes} B"
         )
         self.status_label.setText(status_text)
@@ -270,6 +274,9 @@ class SessionTab(QWidget):
     @Slot(object)
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
         self._snapshot = snapshot
+        if snapshot.title != self._title:
+            self._title = snapshot.title
+            self.title_changed.emit(snapshot.title)
         self.connection_panel.apply_snapshot(snapshot)
         self.send_panel.set_connected(snapshot.state is SessionState.CONNECTED)
         self.log_panel.apply_snapshot(snapshot)

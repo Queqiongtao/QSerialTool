@@ -3,6 +3,7 @@
 from .log_service import LogService, default_log_directory, sanitize_port_name
 from .serial_worker import SerialWorker, SerialWorkerOptions, WorkerEventHandler
 from .session_controller import (
+    MAX_SESSION_TITLE_LENGTH,
     RecordCallback,
     SessionController,
     SessionControllerOptions,
@@ -11,6 +12,7 @@ from .session_controller import (
 from .session_manager import SessionManager
 
 __all__ = [
+    "MAX_SESSION_TITLE_LENGTH",
     "LogService",
     "RecordCallback",
     "SerialWorker",

@@ -2,13 +2,16 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, Qt, QTimer
+from PySide6.QtGui import QAction, QCloseEvent, QContextMenuEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -18,11 +21,13 @@ from PySide6.QtWidgets import (
 )
 
 from qserialtool import __version__
-from qserialtool.application import SessionManager
+from qserialtool.application import MAX_SESSION_TITLE_LENGTH, SessionManager
 from qserialtool.domain import (
     AppConfig,
     ConfigIOError,
     ConfigStore,
+    DomainError,
+    PortInfo,
     SerialConfig,
     SessionPreferences,
     SessionState,
@@ -46,7 +51,7 @@ class MainWindow(QMainWindow):
         self,
         *,
         session_manager: SessionManager,
-        port_provider: Callable[[], tuple[str, ...]],
+        port_provider: Callable[[], tuple[PortInfo, ...]],
         config_store: ConfigStore | None = None,
         initial_config: AppConfig | None = None,
         parent: QWidget | None = None,
@@ -132,6 +137,7 @@ class MainWindow(QMainWindow):
         self.tabs.setCornerWidget(self._header_tools, Qt.Corner.TopRightCorner)
         # 设置角落控件会重新挂载父级并隐藏控件，必须显式显示。
         self._header_tools.show()
+        self.tabs.tabBar().installEventFilter(self)
 
     def _new_session(self, _checked: bool = False) -> None:
         """标签栏“+”按钮和“☰”菜单共用的零参数入口。
@@ -196,9 +202,85 @@ class MainWindow(QMainWindow):
         )
         tab.preferences_changed.connect(self._schedule_save)
         index = self.tabs.addTab(tab, controller.title)
+        self.tabs.setTabToolTip(index, controller.title)
+        tab.title_changed.connect(
+            lambda title, widget=tab: self._on_tab_title_changed(widget, title)
+        )
         self.tabs.setCurrentIndex(index)
         self._schedule_save()
         return tab
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """在标签栏上处理双击重命名与右键菜单。"""
+        bar = self.tabs.tabBar()
+        if watched is bar:
+            if isinstance(event, QMouseEvent) and event.button() is Qt.MouseButton.LeftButton:
+                if event.type() is QEvent.Type.MouseButtonDblClick:
+                    index = bar.tabAt(event.position().toPoint())
+                    if index >= 0:
+                        self._prompt_rename(index)
+                        return True
+            elif isinstance(event, QContextMenuEvent):
+                index = bar.tabAt(event.pos())
+                if index >= 0:
+                    self.tabs.setCurrentIndex(index)
+                    self._show_tab_menu(index, event.globalPos())
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _show_tab_menu(self, index: int, global_pos: QPoint) -> None:
+        """在指定位置弹出标签菜单（独立方法便于测试替换）。"""
+        self._build_tab_menu(index).exec(global_pos)
+
+    def _build_tab_menu(self, index: int) -> QMenu:
+        """构造标签右键菜单，动作作用于指定标签。"""
+        menu = QMenu(self)
+        rename_action = menu.addAction("重命名…")
+        rename_action.triggered.connect(lambda: self._prompt_rename(index))
+        close_action = menu.addAction("关闭当前会话")
+        close_action.triggered.connect(lambda: self._close_tab(index))
+        menu.addSeparator()
+        new_action = menu.addAction("新建会话")
+        new_action.triggered.connect(self._new_session)
+        return menu
+
+    def _ask_session_title(self, initial: str) -> str | None:
+        """弹出名称输入框，取消时返回 None。"""
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("重命名会话")
+        dialog.setLabelText("名称")
+        dialog.setInputMode(QInputDialog.InputMode.TextInput)
+        dialog.setTextValue(initial)
+        # QInputDialog.lineEdit() 在 PySide6 未暴露，改用 findChild 取内部输入框。
+        editor = dialog.findChild(QLineEdit)
+        if editor is not None:
+            editor.setMaxLength(MAX_SESSION_TITLE_LENGTH)
+            editor.selectAll()
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.textValue()
+
+    def _prompt_rename(self, index: int) -> None:
+        """对指定标签发起重命名，失败时提示校验信息。"""
+        widget = self.tabs.widget(index)
+        if not isinstance(widget, SessionTab):
+            return
+        title = self._ask_session_title(widget.controller.title)
+        if title is None or not title.strip():
+            return
+        try:
+            widget.controller.rename(title)
+        except DomainError as exc:
+            QMessageBox.warning(self, "重命名失败", exc.message)
+
+    def _on_tab_title_changed(self, tab: SessionTab, title: str) -> None:
+        """快照标题变化后刷新标签文本、tooltip 并触发保存。"""
+        index = self.tabs.indexOf(tab)
+        if index < 0:
+            return
+        self.tabs.setTabText(index, title)
+        self.tabs.setTabToolTip(index, title)
+        self._schedule_save()
 
     def _close_tab(self, index: int) -> None:
         if index < 0:

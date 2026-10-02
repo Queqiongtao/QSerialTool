@@ -34,6 +34,8 @@ from qserialtool.domain import (
 SnapshotCallback = Callable[[SessionSnapshot], None]
 RecordCallback = Callable[[LogRecord], None]
 
+MAX_SESSION_TITLE_LENGTH = 40
+
 
 @dataclass(frozen=True, slots=True)
 class SessionControllerOptions:
@@ -104,6 +106,20 @@ class SessionController(WorkerEventHandler):
     def title(self) -> str:
         """返回标签标题。"""
         return self._title
+
+    def rename(self, title: str) -> None:
+        """重命名会话标签，广播快照但不影响连接状态。"""
+        cleaned = title.strip()
+        if not cleaned:
+            raise ValidationError("会话名称不能为空。")
+        if len(cleaned) > MAX_SESSION_TITLE_LENGTH:
+            raise ValidationError(f"会话名称不能超过 {MAX_SESSION_TITLE_LENGTH} 个字符。")
+        with self._lock:
+            if cleaned == self._title:
+                return
+            self._title = cleaned
+            snapshot = self._build_snapshot()
+        self._notify_snapshot(snapshot)
 
     @property
     def config(self) -> SerialConfig:

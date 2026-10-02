@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from qserialtool.application import SessionController
 from qserialtool.domain import (
     DomainError,
+    PortInfo,
     SerialConfig,
     SessionSnapshot,
     SessionState,
@@ -47,14 +48,15 @@ class ConnectionPanel(QGroupBox):
         self,
         *,
         controller: SessionController,
-        port_provider: Callable[[], tuple[str, ...]],
+        port_provider: Callable[[], tuple[PortInfo, ...]],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__("串口设置", parent)
         self._controller = controller
         self._port_provider = port_provider
         self._updating = False
-        self._port_items: tuple[str, ...] = ()
+        self._port_items: tuple[PortInfo, ...] = ()
+        self._label_to_device: dict[str, str] = {}
         self._build_ui()
         self._port_timer = QTimer(self)
         self._port_timer.setInterval(_PORT_REFRESH_INTERVAL_MS)
@@ -96,6 +98,7 @@ class ConnectionPanel(QGroupBox):
         self.dtr_check.toggled.connect(self._line_state_changed)
         self.rts_check.toggled.connect(self._line_state_changed)
         self.port_combo.editTextChanged.connect(self._config_changed)
+        self.port_combo.currentIndexChanged.connect(self._on_port_index_changed)
         self.baud_combo.currentTextChanged.connect(self._config_changed)
         for combo in (
             self.bytesize_combo,
@@ -152,6 +155,7 @@ class ConnectionPanel(QGroupBox):
                 SessionState.CLOSED: "已关闭",
             }
             self.connect_button.setText(button_labels[snapshot.state])
+            self._update_port_tooltip()
         finally:
             self._updating = False
 
@@ -171,7 +175,7 @@ class ConnectionPanel(QGroupBox):
         except ValueError as exc:
             raise ValidationError("波特率必须是正整数。") from exc
         return SerialConfig(
-            port=self.port_combo.currentText().strip(),
+            port=self.current_port(),
             baudrate=baudrate,
             bytesize=int(self.bytesize_combo.currentData()),
             parity=self.parity_combo.currentData(),
@@ -200,6 +204,61 @@ class ConnectionPanel(QGroupBox):
         except DomainError as exc:
             QMessageBox.warning(self, "线路控制失败", exc.message)
 
+    def current_port(self) -> str:
+        """返回当前端口设备名，显示标签会被还原成设备名。"""
+        text = self.port_combo.currentText().strip()
+        return self._label_to_device.get(text, text)
+
+    def describe_port(self, device: str) -> str:
+        """返回带设备描述的端口显示文本，未知设备原样返回。"""
+        description = self._description_for(device) if device else ""
+        if description:
+            return f"{device} ({description})"
+        return device
+
+    def _description_for(self, device: str) -> str:
+        for info in self._port_items:
+            if info.device == device:
+                return info.description
+        return ""
+
+    @staticmethod
+    def _port_label(info: PortInfo) -> str:
+        if info.description:
+            return f"{info.device} · {info.description}"
+        return info.device
+
+    def _on_port_index_changed(self, index: int) -> None:
+        """把下拉项选择还原成纯设备名，列表项本身仍保留完整描述。"""
+        if index < 0 or self._updating:
+            return
+        device = self.port_combo.itemData(index)
+        if not isinstance(device, str) or not device:
+            return
+        editor = self.port_combo.lineEdit()
+        if editor is not None and editor.text() != device:
+            editor.setText(device)
+            editor.setCursorPosition(len(device))
+        self._update_port_tooltip()
+
+    def _update_port_tooltip(self) -> None:
+        device = self.current_port()
+        description = self._description_for(device) if device else ""
+        if not device:
+            self.port_combo.setToolTip("")
+        elif description:
+            self.port_combo.setToolTip(f"{device} · {description}")
+        else:
+            self.port_combo.setToolTip(device)
+
+    def _apply_popup_width(self) -> None:
+        """让端口下拉弹窗按最长描述加宽，便于读完整设备名。"""
+        if self.port_combo.count() == 0:
+            return
+        view = self.port_combo.view()
+        hint = view.sizeHintForColumn(0) + 12
+        view.setMinimumWidth(min(max(hint, self.port_combo.width()), 480))
+
     def set_refresh_active(self, active: bool) -> None:
         """按标签可见性启停端口刷新，避免后台标签持续枚举设备。"""
         if active:
@@ -224,16 +283,28 @@ class ConnectionPanel(QGroupBox):
         self._port_items = ports
         editor = self.port_combo.lineEdit()
         caret = editor.cursorPosition() if editor is not None else 0
-        current = self.port_combo.currentText()
+        current = self.current_port()
         with QSignalBlocker(self.port_combo):
             self.port_combo.clear()
-            self.port_combo.addItems(ports)
+            self._label_to_device.clear()
+            for info in ports:
+                label = self._port_label(info)
+                self.port_combo.addItem(label, info.device)
+                self._label_to_device[label] = info.device
             if current:
-                self.port_combo.setEditText(current)
+                index = self.port_combo.findData(current)
+                if index >= 0:
+                    self.port_combo.setCurrentIndex(index)
+                if self.port_combo.currentText().strip() != current:
+                    self.port_combo.setEditText(current)
             elif ports:
                 self.port_combo.setCurrentIndex(0)
+                if self.port_combo.currentText().strip() != ports[0].device:
+                    self.port_combo.setEditText(ports[0].device)
+            self._apply_popup_width()
         if editor is not None:
             editor.setCursorPosition(min(caret, len(editor.text())))
+        self._update_port_tooltip()
 
     def _set_editable(self, enabled: bool) -> None:
         for widget in (

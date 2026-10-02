@@ -1,10 +1,19 @@
 """领域层依赖的外部能力协议。"""
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from .models import AppConfig, LogRecord, SerialConfig
+
+
+@dataclass(frozen=True, slots=True)
+class PortInfo:
+    """一个可用串口的设备名与友好描述。"""
+
+    device: str
+    description: str = ""
 
 
 @runtime_checkable
@@ -41,8 +50,8 @@ class Transport(Protocol):
 class PortScanner(Protocol):
     """系统串口发现能力。"""
 
-    def list_ports(self) -> tuple[str, ...]:
-        """返回当前可用的串口名称。"""
+    def list_ports(self) -> tuple[PortInfo, ...]:
+        """返回当前可用的串口及其描述。"""
         ...
 
 

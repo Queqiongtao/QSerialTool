@@ -2,13 +2,21 @@
 
 from datetime import datetime, timezone
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QMenuBar, QMessageBox, QScrollArea, QToolBar
+from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtGui import QContextMenuEvent, QFont, QMouseEvent
+from PySide6.QtWidgets import (
+    QDialog,
+    QInputDialog,
+    QLineEdit,
+    QMenuBar,
+    QMessageBox,
+    QScrollArea,
+    QToolBar,
+)
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
-from qserialtool.application import SessionManager
-from qserialtool.domain import LogRecord, PortBusyError, SessionState
+from qserialtool.application import MAX_SESSION_TITLE_LENGTH, SessionManager
+from qserialtool.domain import LogRecord, PortBusyError, PortInfo, SessionState
 from qserialtool.ui import MainWindow, ReceivePanel, SessionTab, data_colors
 
 
@@ -19,7 +27,7 @@ def _window(qtbot: object, transport: FakeTransport) -> MainWindow:
     )
     window = MainWindow(
         session_manager=manager,
-        port_provider=lambda: ("COM1",),
+        port_provider=lambda: (PortInfo(device="COM1"),),
     )
     qtbot.addWidget(window)
     window.show()
@@ -78,8 +86,26 @@ def _window_with_store(
     )
     window = MainWindow(
         session_manager=manager,
-        port_provider=lambda: ("COM1", "COM2"),
+        port_provider=lambda: (PortInfo(device="COM1"), PortInfo(device="COM2")),
         config_store=store,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    return window
+
+
+def _window_with_ports(
+    qtbot: object,
+    transport: FakeTransport,
+    ports: tuple[PortInfo, ...],
+) -> MainWindow:
+    manager = SessionManager(
+        transport_factory=lambda: transport,
+        clock=FakeClock(),
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: ports,
     )
     qtbot.addWidget(window)
     window.show()
@@ -408,7 +434,7 @@ def test_port_refresh_button_scans_immediately(qtbot: object) -> None:
     )
     window = MainWindow(
         session_manager=manager,
-        port_provider=lambda: tuple(ports),
+        port_provider=lambda: tuple(PortInfo(device=device) for device in ports),
     )
     qtbot.addWidget(window)
     window.show()
@@ -466,6 +492,64 @@ def test_background_tab_stops_port_refresh(qtbot: object) -> None:
         window.close()
 
 
+def test_port_dropdown_shows_device_description(qtbot: object) -> None:
+    transport = FakeTransport()
+    ports = (
+        PortInfo(device="COM5", description="USB-Enhanced-SERIAL CH343"),
+        PortInfo(device="COM16", description="USB-SERIAL CH340"),
+    )
+    window = _window_with_ports(qtbot, transport, ports)
+    tab = _current_tab(window)
+
+    try:
+        combo = tab.connection_panel.port_combo
+        assert combo.itemText(0) == "COM5 · USB-Enhanced-SERIAL CH343"
+        assert combo.itemData(0) == "COM5"
+        assert combo.currentText() == "COM5"
+        assert tab.connection_panel.build_config().port == "COM5"
+
+        combo.setCurrentIndex(1)
+
+        assert combo.currentText() == "COM16"
+        assert tab.connection_panel.current_port() == "COM16"
+        assert tab.connection_panel.build_config().port == "COM16"
+        assert combo.toolTip() == "COM16 · USB-SERIAL CH340"
+    finally:
+        window.close()
+
+
+def test_status_bar_shows_device_description(qtbot: object) -> None:
+    transport = FakeTransport()
+    ports = (PortInfo(device="COM5", description="USB-Enhanced-SERIAL CH343"),)
+    window = _window_with_ports(qtbot, transport, ports)
+    tab = _current_tab(window)
+
+    try:
+        qtbot.waitUntil(
+            lambda: "COM5 (USB-Enhanced-SERIAL CH343)" in tab.status_label.text(),
+            timeout=2000,
+        )
+    finally:
+        window.close()
+
+
+def test_typed_port_name_stays_plain(qtbot: object) -> None:
+    transport = FakeTransport()
+    ports = (PortInfo(device="COM5", description="USB-Enhanced-SERIAL CH343"),)
+    window = _window_with_ports(qtbot, transport, ports)
+    tab = _current_tab(window)
+
+    try:
+        tab.connection_panel.port_combo.setEditText("COM9")
+
+        assert tab.connection_panel.current_port() == "COM9"
+        assert tab.connection_panel.build_config().port == "COM9"
+        assert "USB-Enhanced-SERIAL CH343" not in tab.status_label.text()
+        assert "COM9" in tab.status_label.text()
+    finally:
+        window.close()
+
+
 def test_receive_panel_renders_only_recent_records(qtbot: object) -> None:
     timestamp = datetime(2026, 10, 2, 12, 0, 0, tzinfo=timezone.utc)
     records = tuple(
@@ -490,3 +574,147 @@ def test_receive_panel_renders_only_recent_records(qtbot: object) -> None:
     assert "已隐藏较早的 1000 条记录" in text
     assert "line 1000" in text
     assert "line 999" not in text
+
+
+def test_tab_double_click_renames_session(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    store = _RecordingStore()
+    window = _window_with_store(qtbot, transport, store)
+    tab = _current_tab(window)
+    monkeypatch.setattr(MainWindow, "_ask_session_title", lambda self, initial: "水泵")
+
+    rect = window.tabs.tabBar().tabRect(0)
+    qtbot.mouseDClick(window.tabs.tabBar(), Qt.MouseButton.LeftButton, pos=rect.center())
+
+    try:
+        assert tab.controller.title == "水泵"
+        qtbot.waitUntil(lambda: window.tabs.tabText(0) == "水泵", timeout=2000)
+        assert window.tabs.tabToolTip(0) == "水泵"
+
+        window._save_timer.stop()
+        window._save_config()
+        assert store.saves
+        assert store.saves[-1].sessions[0].title == "水泵"
+    finally:
+        window.close()
+
+
+def test_tab_context_menu_renames_clicked_tab(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    first = _current_tab(window)
+    second = window.new_session()
+    monkeypatch.setattr(MainWindow, "_ask_session_title", lambda self, initial: "第二个")
+
+    menu = window._build_tab_menu(1)
+    action = next(item for item in menu.actions() if item.text() == "重命名…")
+    action.trigger()
+
+    try:
+        assert second.controller.title == "第二个"
+        qtbot.waitUntil(lambda: window.tabs.tabText(1) == "第二个", timeout=2000)
+        assert first.controller.title == "会话 1"
+        assert window.tabs.tabText(0) == "会话 1"
+    finally:
+        window.close()
+
+
+def test_tab_rename_cancel_keeps_title(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    monkeypatch.setattr(MainWindow, "_ask_session_title", lambda self, initial: None)
+
+    window._prompt_rename(0)
+
+    try:
+        assert tab.controller.title == "会话 1"
+        assert window.tabs.tabText(0) == "会话 1"
+    finally:
+        window.close()
+
+
+def test_tab_bar_context_menu_event_opens_menu(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    window.new_session()
+    bar = window.tabs.tabBar()
+    bar.setCurrentIndex(0)
+    opened: list[tuple[int, tuple[int, int]]] = []
+    monkeypatch.setattr(
+        MainWindow,
+        "_show_tab_menu",
+        lambda self, index, global_pos: opened.append((index, global_pos.toTuple())),
+    )
+    position = bar.tabRect(1).center()
+    global_position = bar.mapToGlobal(position)
+    event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, position, global_position)
+
+    handled = window.eventFilter(bar, event)
+
+    try:
+        assert handled is True
+        assert window.tabs.currentIndex() == 1
+        assert opened == [(1, global_position.toTuple())]
+    finally:
+        window.close()
+
+
+def test_tab_bar_double_click_event_prompts_rename(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    window.new_session()
+    bar = window.tabs.tabBar()
+    prompted: list[int] = []
+    monkeypatch.setattr(
+        MainWindow,
+        "_prompt_rename",
+        lambda self, index: prompted.append(index),
+    )
+
+    def dbl_click(point: QPointF) -> QMouseEvent:
+        return QMouseEvent(
+            QEvent.Type.MouseButtonDblClick,
+            point,
+            point,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+
+    inside = dbl_click(QPointF(bar.tabRect(1).center()))
+    outside = dbl_click(QPointF(bar.width() - 2, bar.tabRect(1).center().y()))
+
+    try:
+        assert window.eventFilter(bar, inside) is True
+        assert prompted == [1]
+        assert window.eventFilter(bar, outside) is False
+        assert prompted == [1]
+    finally:
+        window.close()
+
+
+def test_ask_session_title_uses_dialog_editor(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    captured: dict[str, object] = {}
+
+    def fake_exec(dialog: QInputDialog) -> int:
+        editor = dialog.findChild(QLineEdit)
+        captured["editor"] = editor is not None
+        if editor is not None:
+            captured["max_length"] = editor.maxLength()
+            captured["initial"] = editor.text()
+            editor.setText("水泵控制器")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(QInputDialog, "exec", fake_exec)
+    result = window._ask_session_title("会话 1")
+
+    try:
+        assert result == "水泵控制器"
+        assert captured.get("editor") is True
+        assert captured.get("max_length") == MAX_SESSION_TITLE_LENGTH
+        assert captured.get("initial") == "会话 1"
+    finally:
+        window.close()

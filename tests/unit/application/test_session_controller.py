@@ -7,6 +7,7 @@ import pytest
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
 from qserialtool.application import (
+    MAX_SESSION_TITLE_LENGTH,
     SerialWorkerOptions,
     SessionController,
     SessionControllerOptions,
@@ -301,3 +302,34 @@ def test_controller_force_close_without_worker_and_missing_worker_error() -> Non
     assert controller.state is SessionState.CLOSED
     with pytest.raises(TransportIOError):
         controller._require_worker()
+
+
+def test_controller_rename_trims_title_and_broadcasts_snapshot() -> None:
+    snapshots = SnapshotRecorder()
+    controller = _controller(FakeTransport(), snapshots=snapshots)
+
+    controller.rename("  水泵  ")
+
+    assert controller.title == "水泵"
+    assert snapshots.wait_for(lambda snapshot: snapshot.title == "水泵")
+
+
+def test_controller_rename_rejects_empty_and_too_long_titles() -> None:
+    controller = _controller(FakeTransport())
+
+    with pytest.raises(ValidationError, match="会话名称不能为空"):
+        controller.rename("   ")
+    with pytest.raises(ValidationError, match="不能超过"):
+        controller.rename("x" * (MAX_SESSION_TITLE_LENGTH + 1))
+
+    assert controller.title == "测试会话"
+
+
+def test_controller_rename_to_same_title_does_not_broadcast() -> None:
+    snapshots = SnapshotRecorder()
+    controller = _controller(FakeTransport(), snapshots=snapshots)
+    snapshots.snapshots.clear()
+
+    controller.rename("测试会话")
+
+    assert snapshots.snapshots == []

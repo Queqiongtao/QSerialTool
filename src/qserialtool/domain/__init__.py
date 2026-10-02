@@ -28,7 +28,7 @@ from .errors import (
     ValidationError,
 )
 from .models import AppConfig, LogRecord, SerialConfig, SessionPreferences, SessionSnapshot
-from .ports import Clock, ConfigStore, LogSink, PortScanner, Transport
+from .ports import Clock, ConfigStore, LogSink, PortInfo, PortScanner, Transport
 from .state_machine import SessionStateMachine
 from .states import SessionState
 from .types import (
@@ -67,6 +67,7 @@ __all__ = [
     "LogSink",
     "Parity",
     "PortBusyError",
+    "PortInfo",
     "PortNotFoundError",
     "PortPermissionError",
     "PortScanner",
