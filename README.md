@@ -87,9 +87,28 @@ chmod +x scripts/build.sh
 详细步骤见 `docs/build-and-release.md`，发布检查项见 `docs/release-checklist.md`。
 ## 项目文档
 
+- 完整使用手册：`docs/user-guide.md`
+- 当前实现开发指南：`docs/developer-guide.md`
+- 文档索引与同步规则：`docs/README.md`
 - 详细实施计划：`docs/implementation-plan.md`
 - 工程代理规范：`AGENT.md`
 - 架构决策记录：`docs/adr/`
+
+## 文档实时同步
+
+代码、测试和受影响的文档必须在同一提交中更新。首次克隆后启用本地 Hook：
+
+```powershell
+git config core.hooksPath .githooks
+```
+
+文档同步检查也可手动执行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_docs_sync.py --staged
+```
+
+GitHub Actions 会在 push 和 pull request 上再次校验文档同步、Ruff 和测试。
 
 ## 许可证
 

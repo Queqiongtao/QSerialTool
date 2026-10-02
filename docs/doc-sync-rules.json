@@ -1,0 +1,42 @@
+{
+  "rules": [
+    {
+      "name": "ui",
+      "sources": ["src/qserialtool/ui/**"],
+      "required_any": ["docs/user-guide.md", "docs/developer-guide.md"]
+    },
+    {
+      "name": "core",
+      "sources": ["src/qserialtool/domain/**", "src/qserialtool/application/**"],
+      "required_any": ["docs/developer-guide.md", "docs/adr/**/*.md"]
+    },
+    {
+      "name": "infrastructure",
+      "sources": ["src/qserialtool/infrastructure/**"],
+      "required_any": ["docs/developer-guide.md", "docs/user-guide.md"]
+    },
+    {
+      "name": "build",
+      "sources": ["packaging/**", "scripts/build.ps1", "scripts/build.sh"],
+      "required_any": ["docs/build-and-release.md", "docs/release-checklist.md"]
+    },
+    {
+      "name": "project-metadata",
+      "sources": ["pyproject.toml", "requirements.lock"],
+      "required_any": ["docs/developer-guide.md", "docs/build-and-release.md", "THIRD_PARTY_NOTICES.md"]
+    },
+    {
+      "name": "documentation-tooling",
+      "sources": [".githooks/**", ".github/**", "scripts/check_docs_sync.py"],
+      "required_any": ["docs/developer-guide.md"]
+    }
+  ],
+  "unmapped_fail": [
+    "src/qserialtool/**",
+    "packaging/**",
+    "scripts/build.ps1",
+    "scripts/build.sh",
+    "pyproject.toml",
+    "requirements.lock"
+  ]
+}

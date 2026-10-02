@@ -1,0 +1,52 @@
+name: Quality
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Check documentation synchronization
+        env:
+          DOC_SYNC_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$DOC_SYNC_BASE" ] || [ "$DOC_SYNC_BASE" = "0000000000000000000000000000000000000000" ]; then
+            python scripts/check_docs_sync.py --working-tree
+          else
+            python scripts/check_docs_sync.py --base "$DOC_SYNC_BASE"
+          fi
+
+      - name: Check formatting
+        run: python -m ruff format --check .
+
+      - name: Run Ruff
+        run: python -m ruff check .
+
+      - name: Run tests
+        run: python -m pytest

@@ -1,7 +1,7 @@
 # QSerialTool 工程代理规范
 
-> 文档版本：1.0  
-> 更新时间：2026-10-01 19:17:02 CST（星期四）  
+> 文档版本：1.1  
+> 更新时间：2026-10-02 09:32:11 CST（星期五）  
 > 适用范围：QSerialTool 全工程  
 > 文件用途：约束代理和开发者在仓库内的工作方式
 
@@ -59,8 +59,17 @@
 | 代理行为与工程约束 | 根目录 `AGENT.md` |
 | V1 产品范围与技术方案 | `docs/implementation-plan.md` |
 | 关键架构决策及取舍 | `docs/adr/` 中对应 ADR |
-| 当前代码行为 | 源码与自动化测试 |
-| 用户使用方式 | `README.md` |
+| 当前实现细节与内部约束 | `docs/developer-guide.md`，最终行为由源码与自动化测试确认 |
+| 当前用户使用方式 | `docs/user-guide.md` |
+| 文档职责与同步规则 | `docs/README.md` 与 `docs/doc-sync-rules.json` |
+
+代码、测试和受影响的文档必须在同一提交中更新。提交前运行：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_docs_sync.py --staged
+```
+
+首次在克隆环境工作的开发者必须执行 `git config core.hooksPath .githooks`。CI 会复用同一检查并阻止 `--no-verify` 绕过。机器只能验证相关文档被同步修改，不能代替对文档语义准确性的审查。
 
 ## 4. 目录与文件结构
 
@@ -73,8 +82,19 @@ QSerialTool/
 ├─ LICENSE
 ├─ THIRD_PARTY_NOTICES.md
 ├─ pyproject.toml
+├─ .githooks/
+│  └─ pre-commit
+├─ .github/
+│  └─ workflows/
+│     └─ quality.yml
 ├─ docs/
+│  ├─ README.md
+│  ├─ user-guide.md
+│  ├─ developer-guide.md
 │  ├─ implementation-plan.md
+│  ├─ build-and-release.md
+│  ├─ release-checklist.md
+│  ├─ doc-sync-rules.json
 │  └─ adr/
 ├─ src/
 │  └─ qserialtool/
@@ -92,7 +112,8 @@ QSerialTool/
 │  └─ fixtures/
 ├─ scripts/
 │  ├─ build.ps1
-│  └─ build.sh
+│  ├─ build.sh
+│  └─ check_docs_sync.py
 └─ packaging/
    └─ qserialtool.spec
 ```
@@ -100,6 +121,7 @@ QSerialTool/
 目录规则：
 
 - `docs/` 只放需求和架构文档，不放运行时数据或构建产物。
+- `.githooks/` 放版本化的 Git Hook；`.github/` 放 CI 工作流。
 - `src/` 只放可发布的应用源码。
 - `tests/` 按测试层级组织，不把所有测试堆在单一文件中。
 - `scripts/` 放可重复执行的开发和构建脚本。
@@ -277,7 +299,7 @@ pytest
 4. **最小实现**：只实现当前范围，不顺手引入无关重构。
 5. **补充测试**：覆盖正常路径、边界条件、并发和失败路径。
 6. **执行门禁**：运行 Ruff、相关测试和必要的真实硬件或打包检查。
-7. **同步文档**：更新 README、实施计划、ADR 或第三方声明。
+7. **同步文档**：按 `docs/README.md` 的规则更新用户手册、开发指南、实施计划、ADR 或第三方声明，并运行文档同步检查。
 8. **汇报结果**：说明改动文件、验证命令、结果和剩余风险。
 
 ## 16. 完成定义
@@ -291,7 +313,8 @@ pytest
 - [ ] 使用的验证命令已实际执行并检查结果。
 - [ ] 没有新增无上限队列、无界内存或无界重试。
 - [ ] 用户可见内容为简体中文且无占位符。
-- [ ] 配置、日志、许可证和相关文档已同步。
+- [ ] 配置、日志、许可证、用户手册、开发指南和其他受影响文档已在同一提交中同步。
+- [ ] 文档同步检查已通过，或 CI 已对同一变更范围完成等效校验。
 - [ ] 没有无关文件、生成物、密钥或本地环境信息进入工程。
 - [ ] 对未验证的平台或硬件风险已明确说明。
 

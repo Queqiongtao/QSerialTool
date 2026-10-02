@@ -8,6 +8,8 @@ if (-not (Test-Path -LiteralPath $Python)) {
 
 Push-Location $Root
 try {
+    & $Python scripts\check_docs_sync.py --working-tree
+    if ($LASTEXITCODE -ne 0) { throw "Documentation sync check failed." }
     & $Python -m ruff format --check .
     if ($LASTEXITCODE -ne 0) { throw "Ruff format check failed." }
     & $Python -m ruff check .
