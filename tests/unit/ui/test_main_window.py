@@ -6,7 +6,9 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import (
     QContextMenuEvent,
     QFont,
+    QKeyEvent,
     QMouseEvent,
+    QTextCursor,
     QTextOption,
     QWheelEvent,
 )
@@ -892,6 +894,112 @@ def test_terminal_theme_change_redraws_without_losing_data(qtbot: object) -> Non
         tab.refresh_theme()
 
         assert output.toPlainText() == "themed"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_receive_context_menu_only_offers_copy_and_select_all(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        split_menu = tab.receive_panel.output._build_context_menu()
+        assert [action.text() for action in split_menu.actions()] == ["复制", "全选"]
+        assert split_menu.actions()[0].isEnabled() is False
+
+        tab.set_view_mode("terminal", persist=False)
+        terminal_menu = tab.receive_panel.output._build_context_menu()
+        assert [action.text() for action in terminal_menu.actions()] == ["复制", "全选"]
+
+        cursor = tab.receive_panel.output.textCursor()
+        cursor.insertText("draft")
+        tab.receive_panel.output.setTextCursor(cursor)
+        cursor.setPosition(0)
+        cursor.setPosition(2, QTextCursor.MoveMode.KeepAnchor)
+        tab.receive_panel.output.setTextCursor(cursor)
+        selected_menu = tab.receive_panel.output._build_context_menu()
+        assert selected_menu.actions()[0].isEnabled() is True
+
+        QApplication.clipboard().clear()
+        selected_menu.actions()[0].trigger()
+        assert QApplication.clipboard().text() == "dr"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_receive_text_cannot_be_edited(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+        transport.push_read(b"hello world")
+        qtbot.waitUntil(lambda: output.toPlainText() == "hello world", timeout=2000)
+
+        QTest.keyClicks(output, "x")
+        assert output.draft == "x"
+        QTest.keyClick(output, Qt.Key.Key_Escape)
+        assert output.draft == ""
+
+        cursor = output.textCursor()
+        cursor.setPosition(0)
+        cursor.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        output.setTextCursor(cursor)
+
+        QTest.keyClick(output, Qt.Key.Key_Delete)
+        assert output.toPlainText() == "hello world"
+        QTest.keyClick(output, Qt.Key.Key_Backspace)
+        assert output.toPlainText() == "hello world"
+        QTest.keyClick(output, Qt.Key.Key_X, Qt.KeyboardModifier.ControlModifier)
+        assert output.toPlainText() == "hello world"
+
+        QApplication.clipboard().clear()
+        cursor.setPosition(0)
+        cursor.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        output.setTextCursor(cursor)
+        QApplication.sendEvent(
+            output,
+            QKeyEvent(
+                QEvent.Type.KeyPress,
+                Qt.Key.Key_C,
+                Qt.KeyboardModifier.ControlModifier,
+                "c",
+            ),
+        )
+        assert QApplication.clipboard().text() == "hello"
+        assert output.toPlainText() == "hello world"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_paste_lands_in_draft_not_log_text(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+        transport.push_read(b"hello world")
+        qtbot.waitUntil(lambda: output.toPlainText() == "hello world", timeout=2000)
+
+        QApplication.clipboard().setText("pasted")
+        cursor = output.textCursor()
+        cursor.setPosition(3)
+        output.setTextCursor(cursor)
+        qtbot.keyClick(output, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+
+        assert output.toPlainText() == "hello worldpasted"
     finally:
         tab.controller.close(force=True)
         window.close()

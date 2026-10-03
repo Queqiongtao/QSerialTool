@@ -5,6 +5,7 @@ from collections.abc import Callable
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import (
     QColor,
+    QContextMenuEvent,
     QFont,
     QKeyEvent,
     QKeySequence,
@@ -15,7 +16,7 @@ from PySide6.QtGui import (
     QTextCursor,
     QTextOption,
 )
-from PySide6.QtWidgets import QPlainTextEdit, QWidget
+from PySide6.QtWidgets import QMenu, QPlainTextEdit, QWidget
 
 from qserialtool.domain import TerminalCell, TerminalScreen, TerminalStyle
 from qserialtool.ui.terminal_highlight import find_highlights
@@ -328,6 +329,20 @@ class TerminalOutput(QPlainTextEdit):
             cursor.selectionStart() < start or cursor.selectionEnd() > end
         )
 
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        """接收区右键只提供复制与全选，避免剪切/删除改到日志内容。"""
+        self._build_context_menu().exec(event.globalPos())
+
+    def _build_context_menu(self) -> QMenu:
+        """构造受限的右键菜单：只有复制和全选。"""
+        menu = QMenu(self)
+        copy_action = menu.addAction("复制")
+        copy_action.setEnabled(self.textCursor().hasSelection())
+        copy_action.triggered.connect(self.copy)
+        select_all_action = menu.addAction("全选")
+        select_all_action.triggered.connect(self.selectAll)
+        return menu
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         """限制编辑范围，并把回车和上下键交给终端命令处理。"""
         if not self._terminal_mode:
@@ -352,7 +367,11 @@ class TerminalOutput(QPlainTextEdit):
             self._update_draft("")
             handled = True
         elif event.matches(QKeySequence.StandardKey.Paste):
+            self._constrain_cursor()
             self.paste()
+            handled = True
+        elif event.matches(QKeySequence.StandardKey.Copy):
+            self.copy()
             handled = True
         elif event.key() == Qt.Key.Key_Home:
             self._move_input_caret(to_end=False)
