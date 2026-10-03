@@ -42,11 +42,15 @@ class TerminalOutput(QPlainTextEdit):
         self._autoscroll = True
         self._batch_update = False
         self._highlight_enabled = True
+        self._deferred_render = False
+        self._rendering = False
+        self._scrolling = False
         self.setReadOnly(True)
         self.setUndoRedoEnabled(False)
         self.setAcceptDrops(False)
         self.setCursorWidth(0)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.selectionChanged.connect(self._on_selection_changed)
 
     @property
     def draft(self) -> str:
@@ -62,6 +66,7 @@ class TerminalOutput(QPlainTextEdit):
         self._history_index = None
         self._input_start_position = 0
         self._cursor_block_number = 0
+        self._deferred_render = False
         super().clear()
         self.setReadOnly(not enabled)
 
@@ -115,6 +120,7 @@ class TerminalOutput(QPlainTextEdit):
 
     def clear_content(self) -> None:
         """清空控件内容；终端模式由调用方随后重建画面。"""
+        self._deferred_render = False
         super().clear()
         self._input_start_position = 0
         self._cursor_block_number = 0
@@ -133,6 +139,24 @@ class TerminalOutput(QPlainTextEdit):
         if not self._terminal_mode:
             return
         self._screen = screen
+        if self.textCursor().hasSelection():
+            self._deferred_render = True
+            return
+        self._render_current_screen()
+
+    def _render_current_screen(self) -> None:
+        """重建当前终端画面，供延迟刷新调用。"""
+        screen = self._screen
+        if screen is None:
+            return
+        self._deferred_render = False
+        self._rendering = True
+        try:
+            self._rebuild_screen(screen)
+        finally:
+            self._rendering = False
+
+    def _rebuild_screen(self, screen: TerminalScreen) -> None:
         rows = screen.lines()
         hidden = max(len(rows) - _MAX_RENDERED_ROWS, 0)
         visible = rows[hidden:]
@@ -284,9 +308,25 @@ class TerminalOutput(QPlainTextEdit):
         self.setTextCursor(caret)
 
     def _scroll_after_update(self) -> None:
-        if self._autoscroll:
+        """自动滚动到末尾；存在选中内容或正在滚动时保持原位。"""
+        if not self._autoscroll or self._scrolling:
+            return
+        if self.textCursor().hasSelection():
+            return
+        self._scrolling = True
+        try:
             self.moveCursor(QTextCursor.MoveOperation.End)
             self.ensureCursorVisible()
+        finally:
+            self._scrolling = False
+
+    def _on_selection_changed(self) -> None:
+        """选中被清除后补上暂停期间延迟的渲染与自动滚动。"""
+        if self._rendering or self._scrolling or self.textCursor().hasSelection():
+            return
+        if self._deferred_render:
+            self._render_current_screen()
+        self._scroll_after_update()
 
     def _update_draft(self, text: str) -> None:
         self._draft = text

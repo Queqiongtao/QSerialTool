@@ -1005,6 +1005,76 @@ def test_terminal_paste_lands_in_draft_not_log_text(qtbot: object) -> None:
         window.close()
 
 
+def test_terminal_selection_survives_incoming_data(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        transport.push_read(b"hello world")
+        qtbot.waitUntil(lambda: output.toPlainText() == "hello world", timeout=2000)
+
+        cursor = QTextCursor(output.document())
+        cursor.setPosition(0)
+        cursor.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        output.setTextCursor(cursor)
+
+        transport.push_read(b"\r\nsecond line")
+        qtbot.waitUntil(lambda: len(tab.controller.records) == 2, timeout=2000)
+
+        assert output.textCursor().hasSelection() is True
+        assert output.textCursor().selectedText() == "hello"
+        assert output.toPlainText() == "hello world"
+
+        cleared = QTextCursor(output.document())
+        cleared.setPosition(0)
+        output.setTextCursor(cleared)
+
+        qtbot.waitUntil(
+            lambda: output.toPlainText() == "hello world\nsecond line",
+            timeout=2000,
+        )
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_split_selection_survives_incoming_data(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        output = tab.receive_panel.output
+        assert tab.receive_panel.autoscroll_check.isChecked() is True
+        transport.push_read(b"hello world")
+        qtbot.waitUntil(lambda: "hello world" in output.toPlainText(), timeout=2000)
+
+        cursor = QTextCursor(output.document())
+        cursor.setPosition(0)
+        cursor.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        output.setTextCursor(cursor)
+
+        transport.push_read(b"second")
+        qtbot.waitUntil(lambda: len(tab.controller.records) == 2, timeout=2000)
+
+        assert output.textCursor().hasSelection() is True
+        assert len(output.textCursor().selectedText()) == 5
+
+        cleared = QTextCursor(output.document())
+        cleared.setPosition(0)
+        output.setTextCursor(cleared)
+
+        assert output.textCursor().position() == output.document().characterCount() - 1
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_window_minimum_size_matches_layout_target(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)
