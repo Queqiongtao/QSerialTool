@@ -30,7 +30,7 @@ from qserialtool.domain import (
 )
 from qserialtool.ui import MainWindow, ReceivePanel, SessionTab, data_colors
 from qserialtool.ui.terminal_output import TerminalOutput
-from qserialtool.ui.theme_manager import ansi_color, highlight_colors
+from qserialtool.ui.theme_manager import ansi_color, data_font, highlight_colors
 
 
 def _window(qtbot: object, transport: FakeTransport) -> MainWindow:
@@ -904,6 +904,75 @@ def test_data_panels_use_monospace_font(qtbot: object) -> None:
     window.close()
 
 
+def test_font_size_combo_scales_receive_and_send_panels(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        default_size = data_font().pointSize()
+        assert tab.receive_panel.output.font().pointSize() == default_size
+
+        window.font_combo.setCurrentIndex(window.font_combo.findData(18))
+        assert tab.receive_panel.output.font().pointSize() == 18
+        assert tab.send_panel.editor.font().pointSize() == 18
+
+        window.font_combo.setCurrentIndex(window.font_combo.findData(0))
+        assert tab.receive_panel.output.font().pointSize() == default_size
+        assert tab.send_panel.editor.font().pointSize() == default_size
+    finally:
+        window.close()
+
+
+def test_new_session_inherits_current_font_size(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+
+    try:
+        window.font_combo.setCurrentIndex(window.font_combo.findData(20))
+        new_tab = window.new_session()
+
+        assert new_tab.receive_panel.output.font().pointSize() == 20
+        assert new_tab.send_panel.editor.font().pointSize() == 20
+    finally:
+        window.close()
+
+
+def test_font_size_restored_from_config_and_persisted(qtbot: object) -> None:
+    store = _RecordingStore()
+    transport = FakeTransport()
+    manager = SessionManager(transport_factory=lambda: transport, clock=FakeClock())
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(),
+        data_font_size=16,
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        config_store=store,
+        initial_config=config,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tab = _current_tab(window)
+
+    try:
+        assert window.font_combo.currentData() == 16
+        assert tab.receive_panel.output.font().pointSize() == 16
+
+        window.font_combo.setCurrentIndex(window.font_combo.findData(24))
+        window._save_config()
+
+        assert store.saves[-1].data_font_size == 24
+    finally:
+        window.close()
+
+
 def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)
@@ -948,9 +1017,11 @@ def test_main_window_uses_single_row_header(qtbot: object) -> None:
     corner = window.tabs.cornerWidget(Qt.Corner.TopRightCorner)
     assert corner is not None
     assert window.theme_combo.parentWidget() is corner
+    assert window.font_combo.parentWidget() is corner
     assert window.new_tab_button.parentWidget() is corner
     assert window.menu_button.parentWidget() is corner
     assert window.theme_combo.isVisible()
+    assert window.font_combo.isVisible()
     assert window.new_tab_button.isVisible()
     assert window.menu_button.isVisible()
     window.close()

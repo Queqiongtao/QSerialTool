@@ -193,6 +193,10 @@ class SendPanel(QWidget):
         if not connected and self.periodic_button.isChecked():
             self.periodic_button.setChecked(False)
 
+    def set_data_font_size(self, size: int) -> None:
+        """按全局字号更新发送编辑框字体。"""
+        self.editor.setFont(data_font(size))
+
     def send(self) -> None:
         """手动发送编辑器中的当前内容。"""
         self._send_current(remember=True)

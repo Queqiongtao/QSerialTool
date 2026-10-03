@@ -303,6 +303,11 @@ class SessionTab(QWidget):
         self.log_panel.preferences_changed.connect(self.preferences_changed.emit)
         self._sync_terminal_send_menu()
 
+    def set_data_font_size(self, size: int) -> None:
+        """按全局字号同步接收区与发送编辑框字体。"""
+        self.receive_panel.set_data_font_size(size)
+        self.send_panel.set_data_font_size(size)
+
     def refresh_theme(self) -> None:
         """主题切换后刷新接收区配色和状态点颜色。"""
         self.receive_panel.refresh_theme()

@@ -170,6 +170,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - atomically 替换失败时抛出 `ConfigIOError`。
 - 读取到不可解析或不受支持的内容时，复制为 `settings.corrupt.<UTC时间>.json` 并返回 `None`。
 - 单个无效会话会被跳过，其他有效会话继续加载。
+- `AppConfig.data_font_size` 保存全局数据字号（默认 `0` 表示跟随系统），有效值为 `0` 或 `8..28`；旧配置缺少该字段时按 `0` 迁移，非法值会被拒绝。
 - `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时同步保存。标签标题取自 `SessionController.title`，可通过 `rename()` 修改（去空白后非空、最长 `MAX_SESSION_TITLE_LENGTH = 40`）；改名后广播快照并随 `SessionPreferences.title` 持久化。`view_mode` 也随标签保存；终端视图会暂存分栏比例，切回分栏时恢复。
 
 ### 7.3 自动日志
@@ -196,6 +197,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。
 - `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()`、`ansi_colors()` 和 `data_font()` 提供主题解析结果、数据区配色、ANSI 16 色和等宽字体；`ansi_color()` 把 0-255 索引映射为颜色（0-15 主题语义色，16-231 为 xterm 色立方，232-255 为灰度），`highlight_colors()` 提供终端模式高亮的地址、链接与成功/失败/警告关键字颜色。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。
+- 数据字号：`theme_manager.DATA_FONT_PRESETS` 与 `data_font(size)` 生成数据区字体（`size=0` 时保持系统默认），`ReceivePanel.set_data_font_size()`、`SendPanel.set_data_font_size()` 与 `SessionTab.set_data_font_size()` 逐层转发；头部“字号”下拉框默认“跟随系统”，改变时立即应用到所有标签页并持久化为 `AppConfig.data_font_size`。
 
 界面组件只通过 controller 的公共方法执行动作；跨线程 UI 更新必须经过 queued signal 或 Qt 定时器，禁止直接从 Worker 修改控件。
 

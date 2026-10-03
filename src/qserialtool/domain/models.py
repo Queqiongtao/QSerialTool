@@ -7,10 +7,13 @@ from .codecs import decode_text, format_hex
 from .errors import UserFacingError, ValidationError
 from .states import SessionState
 from .types import (
+    DEFAULT_DATA_FONT_SIZE,
     DEFAULT_LINE_ENDING,
+    MAX_DATA_FONT_SIZE,
     MAX_PERIODIC_INTERVAL_MS,
     MAX_SEND_HISTORY,
     MAX_SIDEBAR_WIDTH,
+    MIN_DATA_FONT_SIZE,
     MIN_PERIODIC_INTERVAL_MS,
     MIN_SIDEBAR_WIDTH,
     SUPPORTED_BYTESIZES,
@@ -243,6 +246,7 @@ class AppConfig:
     sidebar_visible: bool = True
     sidebar_width: int = 320
     content_splitter_state: str | None = None
+    data_font_size: int = DEFAULT_DATA_FONT_SIZE
 
     def __post_init__(self) -> None:
         if type(self.schema_version) is not int or self.schema_version <= 0:
@@ -262,6 +266,12 @@ class AppConfig:
             raise ValidationError("活动标签索引超出范围。")
         if not self.sessions and self.active_session_index != 0:
             raise ValidationError("没有标签时活动标签索引必须为 0。")
+        if type(self.data_font_size) is not int:
+            raise ValidationError("字号必须是整数。")
+        if self.data_font_size != DEFAULT_DATA_FONT_SIZE and not (
+            MIN_DATA_FONT_SIZE <= self.data_font_size <= MAX_DATA_FONT_SIZE
+        ):
+            raise ValidationError("字号必须是 0 或 8 到 28 之间。")
         _require_bool(self.sidebar_visible, "sidebar_visible")
         if (
             type(self.sidebar_width) is not int

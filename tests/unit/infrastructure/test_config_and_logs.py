@@ -57,6 +57,7 @@ def _app_config() -> AppConfig:
         sidebar_visible=False,
         sidebar_width=360,
         content_splitter_state="splitter-state",
+        data_font_size=16,
     )
 
 
@@ -124,6 +125,19 @@ def test_json_config_preserves_explicit_no_line_ending(tmp_path: Path) -> None:
 
     assert loaded is not None
     assert loaded.sessions[0].line_ending == "none"
+
+
+def test_json_config_defaults_data_font_size_for_legacy_files(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    del payload["data_font_size"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.data_font_size == 0
 
 
 def test_csv_log_sink_writes_expected_fields(tmp_path: Path) -> None:

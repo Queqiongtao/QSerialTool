@@ -234,3 +234,15 @@ def test_app_config_rejects_invalid_values(overrides: dict[str, object]) -> None
     values.update(overrides)
     with pytest.raises(ValidationError):
         AppConfig(**values)  # type: ignore[arg-type]
+
+
+def test_app_config_validates_data_font_size() -> None:
+    assert AppConfig(1, "system", None, None, 0, ()).data_font_size == 0
+
+    for size in (0, 8, 16, 28):
+        config = AppConfig(1, "system", None, None, 0, (), data_font_size=size)
+        assert config.data_font_size == size
+
+    for size in (-1, 7, 29, 16.0, True, "big"):
+        with pytest.raises(ValidationError):
+            AppConfig(1, "system", None, None, 0, (), data_font_size=size)  # type: ignore[arg-type]

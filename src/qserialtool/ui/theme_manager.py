@@ -200,11 +200,16 @@ def ansi_color(index: int) -> str:
     raise ValueError(f"ANSI 颜色索引超出范围：{index}")
 
 
-def data_font() -> QFont:
-    """返回接收与发送数据区使用的等宽字体。"""
+DATA_FONT_PRESETS: tuple[int, ...] = (9, 10, 11, 12, 14, 16, 18, 20, 24)
+
+
+def data_font(size: int = 0) -> QFont:
+    """返回接收与发送数据区使用的等宽字体；size 为 0 时沿用系统默认字号。"""
     font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
     font.setStyleHint(QFont.StyleHint.Monospace)
     font.setFixedPitch(True)
+    if size > 0:
+        font.setPointSize(size)
     return font
 
 

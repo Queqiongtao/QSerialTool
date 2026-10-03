@@ -228,6 +228,10 @@ class ReceivePanel(QWidget):
                     self._screen.feed(record.text)
         return self._screen
 
+    def set_data_font_size(self, size: int) -> None:
+        """按全局字号更新接收区字体。"""
+        self.output.setFont(data_font(size))
+
     def refresh_theme(self) -> None:
         """主题切换后按新配色重新渲染。"""
         self.render_records()

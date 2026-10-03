@@ -112,6 +112,7 @@ class JsonConfigStore:
             sessions=tuple(sessions),
             sidebar_visible=payload.get("sidebar_visible", True),
             sidebar_width=payload.get("sidebar_width", 320),
+            data_font_size=payload.get("data_font_size", 0),
             content_splitter_state=payload.get("content_splitter_state"),
         )
 

@@ -35,7 +35,7 @@ from qserialtool.domain import (
 )
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import SessionTab
-from qserialtool.ui.theme_manager import apply_theme
+from qserialtool.ui.theme_manager import DATA_FONT_PRESETS, apply_theme
 
 _THEMES: tuple[tuple[str, Theme], ...] = (
     ("跟随系统", "system"),
@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         self._last_saved: AppConfig | None = None
         self._session_counter = 0
         self._theme: Theme = initial_config.theme if initial_config is not None else "system"
+        self._data_font_size = initial_config.data_font_size if initial_config is not None else 0
         self._sidebar_visible = initial_config.sidebar_visible if initial_config else True
         self._sidebar_width = initial_config.sidebar_width if initial_config else 300
         self._content_splitter_state = (
@@ -119,6 +120,8 @@ class MainWindow(QMainWindow):
         self.theme_combo.setMinimumWidth(88)
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
 
+        self.font_combo = self._build_font_combo()
+
         self.new_tab_button = QToolButton()
         self.new_tab_button.setText("+")
         self.new_tab_button.setAutoRaise(True)
@@ -132,12 +135,27 @@ class MainWindow(QMainWindow):
         header_layout.setSpacing(4)
         header_layout.addWidget(QLabel("主题"))
         header_layout.addWidget(self.theme_combo)
+        header_layout.addWidget(QLabel("字号"))
+        header_layout.addWidget(self.font_combo)
         header_layout.addWidget(self.new_tab_button)
         header_layout.addWidget(self.menu_button)
         self.tabs.setCornerWidget(self._header_tools, Qt.Corner.TopRightCorner)
         # 设置角落控件会重新挂载父级并隐藏控件，必须显式显示。
         self._header_tools.show()
         self.tabs.tabBar().installEventFilter(self)
+
+    def _build_font_combo(self) -> QComboBox:
+        """构造全局字号下拉框，首项为跟随系统默认。"""
+        combo = QComboBox()
+        combo.addItem("默认", 0)
+        for size in DATA_FONT_PRESETS:
+            combo.addItem(str(size), size)
+        index = combo.findData(self._data_font_size)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.setFixedHeight(22)
+        combo.setMinimumWidth(64)
+        combo.currentIndexChanged.connect(self._font_size_changed)
+        return combo
 
     def _new_session(self, _checked: bool = False) -> None:
         """标签栏“+”按钮和“☰”菜单共用的零参数入口。
@@ -200,6 +218,7 @@ class MainWindow(QMainWindow):
             width=layout_state[1],
             content_splitter_state=layout_state[2],
         )
+        tab.set_data_font_size(self._data_font_size)
         tab.preferences_changed.connect(self._schedule_save)
         index = self.tabs.addTab(tab, controller.title)
         self.tabs.setTabToolTip(index, controller.title)
@@ -308,6 +327,17 @@ class MainWindow(QMainWindow):
                 widget.refresh_theme()
         self._schedule_save()
 
+    def _font_size_changed(self) -> None:
+        size = self.font_combo.currentData()
+        if not isinstance(size, int):
+            return
+        self._data_font_size = size
+        for index in range(self.tabs.count()):
+            widget = self.tabs.widget(index)
+            if isinstance(widget, SessionTab):
+                widget.set_data_font_size(size)
+        self._schedule_save()
+
     def _schedule_save(self) -> None:
         if self._config_store is not None:
             self._save_timer.start()
@@ -335,6 +365,7 @@ class MainWindow(QMainWindow):
             sidebar_visible=self._sidebar_visible,
             sidebar_width=self._sidebar_width,
             content_splitter_state=self._content_splitter_state,
+            data_font_size=self._data_font_size,
         )
         if config == self._last_saved:
             return
