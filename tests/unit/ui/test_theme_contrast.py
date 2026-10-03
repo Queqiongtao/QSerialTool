@@ -7,6 +7,7 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
 from qserialtool.ui import apply_theme, data_colors, resolved_theme
+from qserialtool.ui.theme_manager import ansi_color
 
 _DATA_COLOR_FIELDS = ("rx", "tx", "system", "connected", "error", "pending", "idle")
 
@@ -65,3 +66,33 @@ def test_dark_disabled_text_is_dimmer_than_enabled(app: QApplication) -> None:
     disabled = palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText).name()
     assert disabled != enabled
     assert _luminance(disabled) < _luminance(enabled)
+
+
+@pytest.mark.parametrize(
+    "index, expected",
+    [
+        (16, "#000000"),
+        (196, "#ff0000"),
+        (231, "#ffffff"),
+        (232, "#080808"),
+        (255, "#eeeeee"),
+    ],
+)
+def test_ansi_color_maps_256_palette(index: int, expected: str) -> None:
+    assert ansi_color(index) == expected
+
+
+@pytest.mark.parametrize(
+    "theme_name, expected",
+    [("light", "#111827"), ("dark", "#ffffff")],
+)
+def test_ansi_color_uses_theme_for_low_indices(
+    app: QApplication, theme_name: str, expected: str
+) -> None:
+    apply_theme(app, theme_name)
+    assert ansi_color(15) == expected
+
+
+def test_ansi_color_rejects_out_of_range_index() -> None:
+    with pytest.raises(ValueError):
+        ansi_color(256)

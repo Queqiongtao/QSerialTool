@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences
+from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences, TerminalScreen
 from qserialtool.ui.terminal_output import TerminalOutput
 from qserialtool.ui.theme_manager import data_colors, data_font
 
@@ -41,6 +41,7 @@ class ReceivePanel(QWidget):
         self._clear_callback = clear_callback
         self._paused = False
         self._terminal_mode = False
+        self._screen: TerminalScreen | None = None
         self._loading = False
         self._build_ui()
         self._connect_changes()
@@ -110,6 +111,8 @@ class ReceivePanel(QWidget):
             self.tx_check,
         ):
             widget.setVisible(not enabled)
+        if not enabled:
+            self._screen = None
         self.output.set_terminal_mode(enabled)
         self.render_records()
 
@@ -172,11 +175,14 @@ class ReceivePanel(QWidget):
 
     def append_record(self, record: LogRecord) -> None:
         """在未暂停时追加一条记录。"""
-        if self._paused:
-            return
         if self._terminal_mode:
             if record.direction == "rx":
-                self.output.append_stream(record.text, data_colors().rx)
+                screen = self._terminal_screen()
+                screen.feed(record.text)
+                if not self._paused:
+                    self.output.render_screen(screen)
+            return
+        if self._paused:
             return
         if not self._should_show(record):
             return
@@ -191,12 +197,7 @@ class ReceivePanel(QWidget):
         hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         if self._terminal_mode:
-            chunks = tuple(
-                (record.text, data_colors().rx)
-                for record in records[hidden:]
-                if record.direction == "rx"
-            )
-            self.output.replace_stream(chunks)
+            self.output.render_screen(self._terminal_screen())
             return
         self.output.begin_batch_update()
         if hidden:
@@ -205,6 +206,17 @@ class ReceivePanel(QWidget):
             if self._should_show(record):
                 self._insert_record(record)
         self.output.end_batch_update()
+
+    def _terminal_screen(self) -> TerminalScreen:
+        """返回终端模型；首次进入终端视图时用最近记录重建。"""
+        if self._screen is None:
+            self._screen = TerminalScreen()
+            records = self._records_provider()
+            hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
+            for record in records[hidden:]:
+                if record.direction == "rx":
+                    self._screen.feed(record.text)
+        return self._screen
 
     def refresh_theme(self) -> None:
         """主题切换后按新配色重新渲染。"""
@@ -267,3 +279,6 @@ class ReceivePanel(QWidget):
             return
         self._clear_callback()
         self.output.clear_content()
+        if self._terminal_mode:
+            self._screen = None
+            self.render_records()

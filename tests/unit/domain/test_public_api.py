@@ -14,6 +14,7 @@ def test_domain_public_api_exports_expected_symbols() -> None:
         "SerialConfig",
         "SessionState",
         "SessionStateMachine",
+        "TerminalScreen",
         "Transport",
         "encode_text",
         "parse_hex",

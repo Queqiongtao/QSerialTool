@@ -64,7 +64,16 @@ bootstrap -> ui -> application -> domain
 - `SessionPreferences.view_mode` 保存每个标签的 `split`/`terminal` 视图模式，默认 `split`；旧配置缺少该字段时按 `split` 迁移。
 - `SessionPreferences.line_ending` 保存发送换行策略，默认 `lf`；旧配置缺少该字段时按 `lf` 迁移，显式保存的 `none` 不会被改写。
 
-### 3.3 外部能力协议
+### 3.3 终端模型
+
+- `domain/terminal.py` 提供独立的行式滚动缓冲终端模型，不依赖 Qt 与 pyserial。
+- `TerminalScreen.feed(text)` 增量解析文本与 ANSI 转义序列，跨记录分片由内部待处理缓冲区拼接；`lines()`/`cursor` 返回只读快照供渲染，`reset()` 清空画面与解析状态。
+- `TerminalStyle` 只保存语义样式（`fg`/`bg` 的 0-255 索引与 `bold`），由 UI 映射到当前主题，换主题无需重放数据；0-15 映射主题语义色，16-255 使用 xterm 调色板（16-231 色立方、232-255 灰度）；`TerminalCell` 带 `trailing` 标记双宽字符的右半格。
+- 语义约定：LF 换行并回到行首，CR 仅回行首，BS 左移不擦除，HT 跳到下一个 8 列制表位；SGR 支持 0/1/22/30-37/39/40-47/49/90-97/100-107 与 `38;5;n`/`48;5;n` 的 256 色；`38;2;r;g;b`/`48;2;r;g;b` 真彩、斜体等未支持参数整组跳过，缺失后续参数时停止解析且不改动已有属性；CSI 支持 A/B/C/D/H/f/G 与 J/K，越界钳制。
+- 未知、私有与带中间字节的序列整体吞掉；真彩、alternate screen、滚动区域和 OSC 不在范围内。
+- 行数上限默认 5000，单行超过 500 列自动折行，超出上限裁剪最旧行。
+
+### 3.4 外部能力协议
 
 `domain/ports.py` 定义：
 
@@ -179,11 +188,11 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `MainWindow`：单行头部，不创建 `QMenuBar` 与 `QToolBar`；标签栏右上角角落控件依次承载“主题”下拉框、“+”新建按钮和“☰”菜单（新建会话/关闭当前会话/退出），菜单动作额外用 `addAction()` 挂到窗口以保留 `Ctrl+T/W/Q`；标签栏通过事件过滤器处理双击重命名与右键菜单（重命名…/关闭当前会话/新建会话），菜单动作作用于被点击的标签，右键坐标取 `QContextMenuEvent.pos()/globalPos()`（该类没有 `position()`/`globalPosition()`），重命名对话框用 `dialog.findChild(QLineEdit)` 设置长度上限（`QInputDialog.lineEdit()` 在 PySide6 未暴露），弹菜单与弹对话框分别抽成 `_show_tab_menu()`/`_ask_session_title()` 便于测试替换；负责标签、窗口状态与配置保存（内容未变化时跳过写盘），窗口最小尺寸 900×600，主题变化后对每个 `SessionTab` 调用 `refresh_theme()`。
 - `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上，接收标题行最左侧是侧栏折叠按钮，右侧依次是“发送设置”和“终端/分栏”；终端视图隐藏 `SendPanel`、收起垂直分隔条，接收区末尾使用原始流内联输入；切回分栏恢复原比例，视图模式随标签持久化，底部状态条由 `state_indicator` 色点和 `status_label` 组成；快照标题变化时发出 `title_changed(str)`，由窗口据此刷新标签文本与 tooltip。
 - `ConnectionPanel`：端口刷新、配置校验、连接/断开、DTR/RTS 和文本编码选择；`encoding_combo` 提供 `UTF-8`/`GB18030`/`ASCII` 三选一，`build_config()` 读取其 `userData`，并与其余连接参数一同在连接中禁用。表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标；`set_refresh_active()` 按标签可见性启停轮询，自动枚举周期为 30 s，端口行右侧 `refresh_button` 可手动立即枚举（连接中与端口控件一同禁用）。下拉项显示「设备名 · 描述」并用 `userData` 存设备名，端口框只显示设备名；`current_port()` 解析真正的端口值，`describe_port()` 供状态栏显示带描述的文本，弹窗宽度按最长项自适应（上限 480 px）。
-- `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件为 `TerminalOutput`。终端模式只按顺序渲染 RX 文本，不应用时间戳/RX/TX 过滤，并隐藏这些控件；草稿不写入记录缓冲或导出。取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()`/`add_trailing_header_widget()` 在标题行两侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
+- `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件为 `TerminalOutput`。终端模式把 RX 文本喂给 `TerminalScreen` 后按网格渲染，不应用时间戳/RX/TX 过滤并隐藏这些控件；首次进入终端视图时用最近 2000 条 RX 文本重建模型，切换回分栏时丢弃，暂停时继续喂模型但冻结渲染，清屏同时重置模型；草稿不写入记录缓冲或导出。取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()`/`add_trailing_header_widget()` 在标题行两侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
 - `SendPanel`：分栏视图使用两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体。终端视图不再使用独立发送控件，`send_content()` 负责发送内联终端提交的单行文本；构造出的 payload 为空时直接视为成功无操作，不调用 controller。
-- `TerminalOutput`：终端内联输入控件，把单行输入维护为 RX 流末尾的可删除草稿；无应用提示符，支持回车提交、上下键历史、多行粘贴逐行发送。终端采用仅设备回显，提交成功后移除本地草稿，TX 记录不在终端视图渲染。当前只处理基础文本流和 LF/CRLF 换行，不模拟 CR 覆盖、退格、ANSI 或光标定位。
+- `TerminalOutput`：按 `TerminalScreen` 快照重建网格，把连续同样式单元格合并成运行段写入文档，块状光标用 `paintEvent` 叠加绘制；内联草稿渲染在模型光标处，支持回车提交、上下键历史、多行粘贴逐行发送。终端采用仅设备回显，提交成功后移除本地草稿，TX 记录不在终端视图渲染；画面只渲染最近 2000 行，更早的滚动历史由模型保留。
 - `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。
-- `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()` 和 `data_font()` 提供主题解析结果、数据区配色和等宽字体。
+- `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()`、`ansi_colors()` 和 `data_font()` 提供主题解析结果、数据区配色、ANSI 16 色和等宽字体。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。
 
 界面组件只通过 controller 的公共方法执行动作；跨线程 UI 更新必须经过 queued signal 或 Qt 定时器，禁止直接从 Worker 修改控件。

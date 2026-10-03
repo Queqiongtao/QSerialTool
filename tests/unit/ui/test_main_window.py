@@ -633,6 +633,149 @@ def test_terminal_invalid_hex_keeps_draft(
         window.close()
 
 
+def test_terminal_renders_carriage_return_overwrite(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"progress 10%\rprogress 90%")
+
+        qtbot.waitUntil(lambda: output.toPlainText() == "progress 90%", timeout=2000)
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_applies_ansi_colors_and_wide_characters(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read("\x1b[31m红\x1b[0m".encode())
+
+        qtbot.waitUntil(lambda: output.toPlainText() == "红", timeout=2000)
+        screen = tab.receive_panel._screen
+        assert screen is not None
+        assert screen.lines()[0][0].style.fg == 1
+        assert screen.lines()[0][1].trailing is True
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_pause_freezes_render_but_keeps_receiving(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"before")
+        qtbot.waitUntil(lambda: output.toPlainText() == "before", timeout=2000)
+
+        tab.receive_panel.pause_button.setChecked(True)
+        transport.push_read(b"\rafter!")
+        qtbot.waitUntil(
+            lambda: (
+                tab.receive_panel._screen is not None
+                and tab.receive_panel._screen.text_lines()[0] == "after!"
+            ),
+            timeout=2000,
+        )
+        assert output.toPlainText() == "before"
+
+        tab.receive_panel.pause_button.setChecked(False)
+        qtbot.waitUntil(lambda: output.toPlainText() == "after!", timeout=2000)
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_clear_resets_screen(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"data")
+        qtbot.waitUntil(lambda: output.toPlainText() == "data", timeout=2000)
+
+        qtbot.mouseClick(tab.receive_panel.clear_button, Qt.MouseButton.LeftButton)
+
+        qtbot.waitUntil(lambda: output.toPlainText() == "", timeout=2000)
+        assert tab.receive_panel._screen is not None
+        assert tab.receive_panel._screen.text_lines() == ("",)
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_rebuilds_from_buffer_after_view_round_trip(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"persisted")
+        qtbot.waitUntil(lambda: output.toPlainText() == "persisted", timeout=2000)
+
+        tab.set_view_mode("split", persist=False)
+        assert tab.receive_panel._screen is None
+        tab.set_view_mode("terminal", persist=False)
+
+        assert output.toPlainText() == "persisted"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_theme_change_redraws_without_losing_data(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"themed")
+        qtbot.waitUntil(lambda: output.toPlainText() == "themed", timeout=2000)
+
+        tab.refresh_theme()
+
+        assert output.toPlainText() == "themed"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_window_minimum_size_matches_layout_target(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)
