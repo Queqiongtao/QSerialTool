@@ -103,5 +103,6 @@ def test_highlight_colors_meet_contrast_targets(app: QApplication, theme_name: s
     apply_theme(app, theme_name)
     background = _base_color(app)
     colors = highlight_colors()
-    assert _contrast(colors.address, background) >= 4.5
-    assert _contrast(colors.link, background) >= 4.5
+    for field in ("address", "link", "success", "error", "warning"):
+        value = getattr(colors, field)
+        assert _contrast(value, background) >= 4.5, f"{theme_name} {field}={value}"

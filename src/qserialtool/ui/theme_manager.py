@@ -73,11 +73,26 @@ class HighlightColors:
 
     address: str
     link: str
+    success: str
+    error: str
+    warning: str
 
 
 _HIGHLIGHT_COLORS: dict[str, HighlightColors] = {
-    "light": HighlightColors(address="#8b2f8f", link="#0e7490"),
-    "dark": HighlightColors(address="#d9a2f5", link="#6fd7e6"),
+    "light": HighlightColors(
+        address="#8b2f8f",
+        link="#0e7490",
+        success="#14713d",
+        error="#b3261e",
+        warning="#8a5a00",
+    ),
+    "dark": HighlightColors(
+        address="#d9a2f5",
+        link="#6fd7e6",
+        success="#5cc98c",
+        error="#ff8a80",
+        warning="#ffc14d",
+    ),
 }
 
 # ANSI 16 色语义索引，终端模型只存索引，渲染时再映射到当前主题。

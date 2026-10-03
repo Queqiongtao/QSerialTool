@@ -191,6 +191,7 @@ class SessionPreferences:
     line_ending: LineEnding = DEFAULT_LINE_ENDING
     periodic_interval_ms: int = 1000
     view_mode: ViewMode = "split"
+    highlight_enabled: bool = True
 
     def __post_init__(self) -> None:
         _require_string(self.title, "标签标题")
@@ -226,6 +227,7 @@ class SessionPreferences:
             raise ValidationError("周期发送间隔超出允许范围。")
         if self.view_mode not in SUPPORTED_VIEW_MODES:
             raise ValidationError("视图模式必须是 split 或 terminal。")
+        _require_bool(self.highlight_enabled, "highlight_enabled")
 
 
 @dataclass(frozen=True, slots=True)

@@ -41,3 +41,34 @@ def test_multiple_matches_are_sorted() -> None:
 @pytest.mark.parametrize("text", ["", "plain text 12345", "hello world"])
 def test_returns_empty_without_matches(text: str) -> None:
     assert find_highlights(text) == ()
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("OK", ((0, 2, "success"),)),
+        ("ok", ((0, 2, "success"),)),
+        ("Success", ((0, 7, "success"),)),
+        ("PASS", ((0, 4, "success"),)),
+        ("ERROR", ((0, 5, "error"),)),
+        ("fail", ((0, 4, "error"),)),
+        ("WARN", ((0, 4, "warning"),)),
+    ],
+)
+def test_detects_keywords_case_insensitively(
+    text: str, expected: tuple[tuple[int, int, str], ...]
+) -> None:
+    assert find_highlights(text) == expected
+
+
+@pytest.mark.parametrize("text", ["OKAY", "SUCCESSFUL", "PASSED", "PASSWORD"])
+def test_keywords_match_whole_words_only(text: str) -> None:
+    assert find_highlights(text) == ()
+
+
+def test_url_wins_over_embedded_keyword() -> None:
+    assert find_highlights("http://a.com/OK") == ((0, 15, "link"),)
+
+
+def test_address_and_keyword_can_coexist() -> None:
+    assert find_highlights("1.2.3.4 OK") == ((0, 7, "address"), (8, 10, "success"))

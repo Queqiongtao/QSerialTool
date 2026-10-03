@@ -63,6 +63,7 @@ bootstrap -> ui -> application -> domain
 - 回调跨线程传递时只使用不可变 `LogRecord` 和 `SessionSnapshot`。
 - `SessionPreferences.view_mode` 保存每个标签的 `split`/`terminal` 视图模式，默认 `split`；旧配置缺少该字段时按 `split` 迁移。
 - `SessionPreferences.line_ending` 保存发送换行策略，默认 `lf`；旧配置缺少该字段时按 `lf` 迁移，显式保存的 `none` 不会被改写。
+- `SessionPreferences.highlight_enabled` 保存终端视图高亮开关，默认 `True`；旧配置缺少该字段时按开启迁移。
 
 ### 3.3 终端模型
 
@@ -191,9 +192,9 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、自动滚动）和内存缓冲显示；输出控件为 `TerminalOutput`。终端模式把 RX 文本喂给 `TerminalScreen` 后按网格渲染，不应用时间戳/RX/TX 过滤并隐藏这些控件；首次进入终端视图时用最近 2000 条 RX 文本重建模型，切换回分栏时丢弃，暂停时继续喂模型但冻结渲染，清屏同时重置模型；草稿不写入记录缓冲或导出。取色走 `theme_manager.data_colors()`，可通过 `add_leading_header_widget()`/`add_trailing_header_widget()` 在标题行两侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
 - `SendPanel`：分栏视图使用两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体。终端视图不再使用独立发送控件，`send_content()` 负责发送内联终端提交的单行文本；构造出的 payload 为空时直接视为成功无操作，不调用 controller。
 - `TerminalOutput`：按 `TerminalScreen` 快照重建网格，把连续同样式单元格合并成运行段写入文档，块状光标用 `paintEvent` 叠加绘制；内联草稿渲染在模型光标处，支持回车提交、上下键历史、多行粘贴逐行发送。终端采用仅设备回显，提交成功后移除本地草稿，TX 记录不在终端视图渲染；画面只渲染最近 2000 行，更早的滚动历史由模型保留。
-- 终端模式高亮：每行渲染前调用 `terminal_highlight.find_highlights()` 识别 IPv4/MAC（归为 `address`）与 URL/邮箱（归为 `link`），命中区间按 URL→邮箱→MAC→IPv4 先到先得、重叠跳过；只有前景色未被 ANSI 显式设置的单元格才用 `theme_manager.highlight_colors()` 的地址/链接色覆盖，其它属性不变，始终开启、无开关。
+- 终端模式高亮：每行渲染前调用 `terminal_highlight.find_highlights()` 识别 IPv4/MAC（`address`）、URL/邮箱（`link`）与关键字 OK/SUCCESS/PASS（`success`）、ERROR/FAIL（`error`）、WARN（`warning`）；关键字大小写不敏感、整词匹配，命中区间按 URL→邮箱→MAC→IPv4→关键字先到先得、重叠跳过；只有前景色未被 ANSI 显式设置的单元格才用 `theme_manager.highlight_colors()` 的对应颜色覆盖，其它属性不变。接收标题行的“高亮”勾选框（仅终端视图可见、默认勾选）通过 `TerminalOutput.set_highlight_enabled()` 统一开关整层高亮，并随 `SessionPreferences.highlight_enabled` 持久化。
 - `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。
-- `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()`、`ansi_colors()` 和 `data_font()` 提供主题解析结果、数据区配色、ANSI 16 色和等宽字体；`ansi_color()` 把 0-255 索引映射为颜色（0-15 主题语义色，16-231 为 xterm 色立方，232-255 为灰度），`highlight_colors()` 提供终端模式高亮的地址/链接色。
+- `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()`、`ansi_colors()` 和 `data_font()` 提供主题解析结果、数据区配色、ANSI 16 色和等宽字体；`ansi_color()` 把 0-255 索引映射为颜色（0-15 主题语义色，16-231 为 xterm 色立方，232-255 为灰度），`highlight_colors()` 提供终端模式高亮的地址、链接与成功/失败/警告关键字颜色。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。
 
 界面组件只通过 controller 的公共方法执行动作；跨线程 UI 更新必须经过 queued signal 或 Qt 定时器，禁止直接从 Worker 修改控件。

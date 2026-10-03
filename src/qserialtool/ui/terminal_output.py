@@ -39,6 +39,7 @@ class TerminalOutput(QPlainTextEdit):
         self._history_index: int | None = None
         self._autoscroll = True
         self._batch_update = False
+        self._highlight_enabled = True
         self.setReadOnly(True)
         self.setUndoRedoEnabled(False)
         self.setAcceptDrops(False)
@@ -73,6 +74,10 @@ class TerminalOutput(QPlainTextEdit):
     def set_autoscroll(self, enabled: bool) -> None:
         """设置新记录到达时是否自动滚动。"""
         self._autoscroll = enabled
+
+    def set_highlight_enabled(self, enabled: bool) -> None:
+        """设置是否在终端视图中叠加地址、链接与关键字高亮。"""
+        self._highlight_enabled = enabled
 
     def set_draft(self, text: str) -> None:
         """替换终端草稿，供历史菜单回填。"""
@@ -191,11 +196,19 @@ class TerminalOutput(QPlainTextEdit):
 
     def _highlight_overrides(self, row: tuple[TerminalCell, ...]) -> dict[int, str]:
         """按行文本匹配地址与链接，返回需要改色的单元格索引到颜色。"""
+        if not self._highlight_enabled:
+            return {}
         matches = find_highlights("".join(cell.char for cell in row))
         if not matches:
             return {}
         colors = highlight_colors()
-        palette = {"address": colors.address, "link": colors.link}
+        palette = {
+            "address": colors.address,
+            "link": colors.link,
+            "success": colors.success,
+            "error": colors.error,
+            "warning": colors.warning,
+        }
         positions: list[tuple[int, int, int]] = []
         offset = 0
         for cell_index, cell in enumerate(row):

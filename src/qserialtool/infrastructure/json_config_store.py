@@ -141,4 +141,5 @@ class JsonConfigStore:
             line_ending=payload.get("line_ending", DEFAULT_LINE_ENDING),
             periodic_interval_ms=payload.get("periodic_interval_ms", 1000),
             view_mode=payload.get("view_mode", "split"),
+            highlight_enabled=payload.get("highlight_enabled", True),
         )

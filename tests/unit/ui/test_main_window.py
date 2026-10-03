@@ -718,6 +718,70 @@ def test_terminal_highlights_addresses_and_links_but_keeps_ansi_colors(
         window.close()
 
 
+def test_terminal_highlights_success_error_and_warning_keywords(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"OK ERROR WARN\r\n")
+
+        qtbot.waitUntil(lambda: output.toPlainText().strip() == "OK ERROR WARN", timeout=2000)
+        formats = _fragment_formats(output)
+        colors = highlight_colors()
+
+        assert ("OK", colors.success) in formats
+        assert ("ERROR", colors.error) in formats
+        assert ("WARN", colors.warning) in formats
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_highlight_toggle_disables_all_highlighting(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        panel = tab.receive_panel
+        output = panel.output
+        colors = highlight_colors()
+
+        transport.push_read(b"OK 10.0.0.1\r\n")
+        qtbot.waitUntil(lambda: output.toPlainText().strip() == "OK 10.0.0.1", timeout=2000)
+        assert ("OK", colors.success) in _fragment_formats(output)
+        assert ("10.0.0.1", colors.address) in _fragment_formats(output)
+        assert tab.to_preferences().highlight_enabled is True
+
+        panel.highlight_check.setChecked(False)
+        qtbot.waitUntil(
+            lambda: (
+                not any(
+                    color in {colors.success, colors.address}
+                    for _, color in _fragment_formats(output)
+                )
+            ),
+            timeout=2000,
+        )
+        assert tab.to_preferences().highlight_enabled is False
+
+        panel.highlight_check.setChecked(True)
+        qtbot.waitUntil(
+            lambda: ("OK", colors.success) in _fragment_formats(output),
+            timeout=2000,
+        )
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_terminal_pause_freezes_render_but_keeps_receiving(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)

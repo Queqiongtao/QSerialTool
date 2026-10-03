@@ -402,6 +402,7 @@ class SessionTab(QWidget):
             show_rx=self.receive_panel.rx_check.isChecked(),
             show_tx=self.receive_panel.tx_check.isChecked(),
             autoscroll=self.receive_panel.autoscroll_check.isChecked(),
+            highlight_enabled=self.receive_panel.highlight_check.isChecked(),
             auto_log_enabled=self.controller.auto_log_enabled,
             auto_log_format=self.controller.auto_log_format,
             auto_log_directory=self.controller.auto_log_directory,

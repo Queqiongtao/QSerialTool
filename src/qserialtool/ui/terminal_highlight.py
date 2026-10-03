@@ -1,4 +1,4 @@
-"""识别接收文本中的地址与链接片段，供终端视图叠加高亮。"""
+"""识别接收文本中的地址、链接与关键字片段，供终端视图叠加高亮。"""
 
 import re
 
@@ -16,16 +16,20 @@ _ORDERED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_EMAIL_PATTERN, "link"),
     (_MAC_PATTERN, "address"),
     (_IPV4_PATTERN, "address"),
+    (re.compile(r"(?i)\b(?:OK|SUCCESS|PASS)\b"), "success"),
+    (re.compile(r"(?i)\b(?:ERROR|FAIL)\b"), "error"),
+    (re.compile(r"(?i)\b(?:WARN)\b"), "warning"),
 )
 
-# 所有模式都必须包含其中至少一个字符，用于快速跳过无关文本。
+# 地址/链接模式必须含标点，关键字模式必须含词干，否则可整行跳过。
 _TRIGGER_CHARS = frozenset(".:-@/")
+_KEYWORD_STEMS = ("ok", "success", "pass", "error", "fail", "warn")
 _URL_TRAILING_CHARS = ".,;:!?)]}'\x22"
 
 
 def find_highlights(text: str) -> tuple[tuple[int, int, str], ...]:
-    """返回文本中地址/链接片段的 (start, end, kind)，按位置升序且互不重叠。"""
-    if not text or _TRIGGER_CHARS.isdisjoint(text):
+    """返回文本中地址、链接与关键字片段的 (start, end, kind)，按位置升序且互不重叠。"""
+    if not text or (_TRIGGER_CHARS.isdisjoint(text) and not _has_keyword_stem(text)):
         return ()
     claimed: list[tuple[int, int, str]] = []
     for pattern, kind in _ORDERED_PATTERNS:
@@ -40,6 +44,12 @@ def find_highlights(text: str) -> tuple[tuple[int, int, str], ...]:
             claimed.append((start, end, kind))
     claimed.sort()
     return tuple(claimed)
+
+
+def _has_keyword_stem(text: str) -> bool:
+    """判断文本是否可能含有关键字词干，用于跳过整行。"""
+    lowered = text.lower()
+    return any(stem in lowered for stem in _KEYWORD_STEMS)
 
 
 def _trim_url_end(text: str, start: int, end: int) -> int:
