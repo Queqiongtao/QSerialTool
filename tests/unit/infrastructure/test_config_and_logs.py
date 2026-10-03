@@ -46,6 +46,7 @@ def _app_config() -> AppConfig:
         line_ending="crlf",
         periodic_interval_ms=250,
         view_mode="terminal",
+        wrap_enabled=False,
     )
     return AppConfig(
         schema_version=1,
@@ -138,6 +139,19 @@ def test_json_config_defaults_data_font_size_for_legacy_files(tmp_path: Path) ->
 
     assert loaded is not None
     assert loaded.data_font_size == 0
+
+
+def test_json_config_defaults_wrap_enabled_for_legacy_files(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    del payload["sessions"][0]["wrap_enabled"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.sessions[0].wrap_enabled is True
 
 
 def test_csv_log_sink_writes_expected_fields(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPalette,
     QTextCharFormat,
     QTextCursor,
+    QTextOption,
 )
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
@@ -78,6 +79,14 @@ class TerminalOutput(QPlainTextEdit):
     def set_highlight_enabled(self, enabled: bool) -> None:
         """设置是否在终端视图中叠加地址、链接与关键字高亮。"""
         self._highlight_enabled = enabled
+
+    def set_wrap_enabled(self, enabled: bool) -> None:
+        """设置超长行是否按控件宽度自动换行。"""
+        if enabled:
+            self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+            self.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
+        else:
+            self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
 
     def set_draft(self, text: str) -> None:
         """替换终端草稿，供历史菜单回填。"""

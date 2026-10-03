@@ -75,6 +75,6 @@ Windows 单文件目标机器无需安装 Python。Linux 单文件仍依赖常�
 2026-10-03 已成功生成：
 
 - 文件：`dist/QSerialTool.exe`
-- 大小：44405901 字节
-- SHA-256：`c5ff93290bbf6ddfd7de18be310eca3119699a583ff258640787cae6d926c882`
+- 大小：44407669 字节
+- SHA-256：`1529dace54224ab25d8f282369657dbdbd47e47c6f1c76dd05d1929ccfff0a8d`
 - 当前执行环境受 Application Control 策略限制，无法直接启动该外部可执行文件；需要在允许执行本地构建产物的测试机上完成启动验收。

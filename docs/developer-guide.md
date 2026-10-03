@@ -64,6 +64,7 @@ bootstrap -> ui -> application -> domain
 - `SessionPreferences.view_mode` 保存每个标签的 `split`/`terminal` 视图模式，默认 `split`；旧配置缺少该字段时按 `split` 迁移。
 - `SessionPreferences.line_ending` 保存发送换行策略，默认 `lf`；旧配置缺少该字段时按 `lf` 迁移，显式保存的 `none` 不会被改写。
 - `SessionPreferences.highlight_enabled` 保存终端视图高亮开关，默认 `True`；旧配置缺少该字段时按开启迁移。
+- `SessionPreferences.wrap_enabled` 保存接收区自动换行开关，默认 `True`；旧配置缺少该字段时按开启迁移。
 
 ### 3.3 终端模型
 
@@ -198,6 +199,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `theme_manager`：`apply_theme()` 设置深色角色、占位符文字和深色禁用态文字颜色；`resolved_theme()`、`data_colors()`、`ansi_colors()` 和 `data_font()` 提供主题解析结果、数据区配色、ANSI 16 色和等宽字体；`ansi_color()` 把 0-255 索引映射为颜色（0-15 主题语义色，16-231 为 xterm 色立方，232-255 为灰度），`highlight_colors()` 提供终端模式高亮的地址、链接与成功/失败/警告关键字颜色。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。
 - 数据字号：`theme_manager.DATA_FONT_PRESETS` 与 `data_font(size)` 生成数据区字体（`size=0` 时保持系统默认），`ReceivePanel.set_data_font_size()`、`SendPanel.set_data_font_size()` 与 `SessionTab.set_data_font_size()` 逐层转发；头部“字号”下拉框默认“跟随系统”，改变时立即应用到所有标签页并持久化为 `AppConfig.data_font_size`。
+- 自动换行：接收标题行的 `wrap_check`（默认开启）经 `ReceivePanel._settings_changed()` 调用 `TerminalOutput.set_wrap_enabled()`；开启时控件使用 `LineWrapMode.WidgetWidth` 与 `QTextOption.WrapMode.WrapAnywhere` 按宽度折行，关闭时恢复 `NoWrap`，分栏与终端视图共用同一控件，状态随 `SessionPreferences.wrap_enabled` 持久化。
 
 界面组件只通过 controller 的公共方法执行动作；跨线程 UI 更新必须经过 queued signal 或 Qt 定时器，禁止直接从 Worker 修改控件。
 

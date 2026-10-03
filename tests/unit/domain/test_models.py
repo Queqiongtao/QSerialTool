@@ -200,6 +200,15 @@ def test_session_preferences_validates_view_mode() -> None:
         _preferences(view_mode="fullscreen")
 
 
+def test_session_preferences_defaults_wrap_enabled() -> None:
+    assert _preferences().wrap_enabled is True
+    assert _preferences(wrap_enabled=False).wrap_enabled is False
+
+    for value in (1, 0, "yes", None):
+        with pytest.raises(ValidationError):
+            _preferences(wrap_enabled=value)
+
+
 def test_app_config_validates_active_session_index() -> None:
     preferences = _preferences()
     config = AppConfig(1, "system", None, None, 0, (preferences,))

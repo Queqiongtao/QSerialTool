@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QContextMenuEvent, QFont, QMouseEvent
+from PySide6.QtGui import QContextMenuEvent, QFont, QMouseEvent, QTextOption
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenuBar,
     QMessageBox,
+    QPlainTextEdit,
     QScrollArea,
     QToolBar,
 )
@@ -924,6 +925,71 @@ def test_font_size_combo_scales_receive_and_send_panels(qtbot: object) -> None:
         window.close()
 
 
+def test_receive_wrap_toggle_controls_line_wrap(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        panel = tab.receive_panel
+        assert panel.wrap_check.isChecked() is True
+        assert panel.output.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+        assert panel.output.wordWrapMode() == QTextOption.WrapMode.WrapAnywhere
+        assert tab.to_preferences().wrap_enabled is True
+
+        tab.set_view_mode("terminal", persist=False)
+        assert panel.wrap_check.isVisibleTo(tab)
+        assert panel.output.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+
+        panel.wrap_check.setChecked(False)
+        assert panel.output.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap
+        assert tab.to_preferences().wrap_enabled is False
+
+        panel.wrap_check.setChecked(True)
+        assert panel.output.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+        assert tab.to_preferences().wrap_enabled is True
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_wrap_enabled_restored_from_config(qtbot: object) -> None:
+    transport = FakeTransport()
+    manager = SessionManager(transport_factory=lambda: transport, clock=FakeClock())
+    preferences = SessionPreferences(
+        title="COM1",
+        config=SerialConfig(port="COM1"),
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+        wrap_enabled=False,
+    )
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(preferences,),
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        initial_config=config,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tab = _current_tab(window)
+
+    try:
+        assert tab.receive_panel.wrap_check.isChecked() is False
+        assert tab.receive_panel.output.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap
+    finally:
+        window.close()
+
+
 def test_new_session_inherits_current_font_size(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)
@@ -986,6 +1052,7 @@ def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
     for widget in (
         receive_panel.pause_button,
         receive_panel.clear_button,
+        receive_panel.wrap_check,
         receive_panel.autoscroll_check,
         tab.view_toggle_button,
     ):

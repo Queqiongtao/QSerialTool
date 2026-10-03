@@ -74,6 +74,8 @@ class ReceivePanel(QWidget):
         self.highlight_check = QCheckBox("高亮")
         self.highlight_check.setChecked(True)
         self.highlight_check.setVisible(False)
+        self.wrap_check = QCheckBox("自动换行")
+        self.wrap_check.setChecked(True)
 
         header.addWidget(heading)
         header.addSpacing(12)
@@ -85,10 +87,12 @@ class ReceivePanel(QWidget):
         header.addWidget(self.pause_button)
         header.addWidget(self.clear_button)
         header.addWidget(self.highlight_check)
+        header.addWidget(self.wrap_check)
         header.addWidget(self.autoscroll_check)
 
         self.output = TerminalOutput()
         self.output.setFont(data_font())
+        self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.output.document().setMaximumBlockCount(_DOCUMENT_BLOCK_LIMIT)
 
         layout = QVBoxLayout(self)
@@ -150,6 +154,7 @@ class ReceivePanel(QWidget):
         self.tx_check.toggled.connect(self._settings_changed)
         self.autoscroll_check.toggled.connect(self._settings_changed)
         self.highlight_check.toggled.connect(self._settings_changed)
+        self.wrap_check.toggled.connect(self._settings_changed)
         self.pause_button.toggled.connect(self._pause_changed)
         self.clear_button.clicked.connect(self._clear)
 
@@ -164,6 +169,7 @@ class ReceivePanel(QWidget):
                 QSignalBlocker(self.tx_check),
                 QSignalBlocker(self.autoscroll_check),
                 QSignalBlocker(self.highlight_check),
+                QSignalBlocker(self.wrap_check),
             ):
                 index = self.mode_combo.findData(preferences.display_mode)
                 self.mode_combo.setCurrentIndex(max(index, 0))
@@ -172,10 +178,12 @@ class ReceivePanel(QWidget):
                 self.tx_check.setChecked(preferences.show_tx)
                 self.autoscroll_check.setChecked(preferences.autoscroll)
                 self.highlight_check.setChecked(preferences.highlight_enabled)
+                self.wrap_check.setChecked(preferences.wrap_enabled)
         finally:
             self._loading = False
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.output.set_highlight_enabled(self.highlight_check.isChecked())
+        self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.render_records()
 
     @property
@@ -272,6 +280,7 @@ class ReceivePanel(QWidget):
             return
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.output.set_highlight_enabled(self.highlight_check.isChecked())
+        self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.render_records()
         self.preferences_changed.emit()
 
