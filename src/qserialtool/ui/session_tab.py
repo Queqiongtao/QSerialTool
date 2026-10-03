@@ -2,8 +2,8 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, QSignalBlocker, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QActionGroup, QHideEvent, QShowEvent
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSignalBlocker, Qt, Signal, Slot
+from PySide6.QtGui import QAction, QActionGroup, QHideEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -50,6 +50,7 @@ class SessionTab(QWidget):
 
     preferences_changed = Signal()
     title_changed = Signal(str)
+    font_zoom_requested = Signal(int)
 
     def __init__(
         self,
@@ -81,6 +82,8 @@ class SessionTab(QWidget):
         preferences: SessionPreferences | None,
     ) -> None:
         self._build_panels(port_provider, preferences)
+        self.receive_panel.output.viewport().installEventFilter(self)
+        self.send_panel.editor.viewport().installEventFilter(self)
         self._build_sidebar_toggle()
         self._build_terminal_send_menu()
         self._build_view_toggle()
@@ -350,6 +353,19 @@ class SessionTab(QWidget):
     def hideEvent(self, event: QHideEvent) -> None:
         self.connection_panel.set_refresh_active(False)
         super().hideEvent(event)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """把接收区与发送编辑区的 Ctrl+滚轮转换为全局字号缩放请求。"""
+        if (
+            event.type() == QEvent.Type.Wheel
+            and isinstance(event, QWheelEvent)
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            delta = event.angleDelta().y() or event.angleDelta().x()
+            if delta:
+                self.font_zoom_requested.emit(1 if delta > 0 else -1)
+                return True
+        return super().eventFilter(watched, event)
 
     def apply_layout_state(
         self,

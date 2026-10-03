@@ -2,8 +2,14 @@
 
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QContextMenuEvent, QFont, QMouseEvent, QTextOption
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import (
+    QContextMenuEvent,
+    QFont,
+    QMouseEvent,
+    QTextOption,
+    QWheelEvent,
+)
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,7 +37,12 @@ from qserialtool.domain import (
 )
 from qserialtool.ui import MainWindow, ReceivePanel, SessionTab, data_colors
 from qserialtool.ui.terminal_output import TerminalOutput
-from qserialtool.ui.theme_manager import ansi_color, data_font, highlight_colors
+from qserialtool.ui.theme_manager import (
+    DATA_FONT_PRESETS,
+    ansi_color,
+    data_font,
+    highlight_colors,
+)
 
 
 def _window(qtbot: object, transport: FakeTransport) -> MainWindow:
@@ -1035,6 +1046,123 @@ def test_font_size_restored_from_config_and_persisted(qtbot: object) -> None:
         window._save_config()
 
         assert store.saves[-1].data_font_size == 24
+    finally:
+        window.close()
+
+
+def _wheel(delta: int, modifiers: Qt.KeyboardModifier) -> QWheelEvent:
+    position = QPointF(5, 5)
+    return QWheelEvent(
+        position,
+        position,
+        QPoint(0, 0),
+        QPoint(0, delta),
+        Qt.MouseButton.NoButton,
+        modifiers,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+
+
+def test_font_shortcuts_step_through_presets(qtbot: object) -> None:
+    transport = FakeTransport()
+    store = _RecordingStore()
+    window = _window_with_store(qtbot, transport, store)
+    tab = _current_tab(window)
+    system_size = data_font().pointSize()
+    zoom_in = [size for size in DATA_FONT_PRESETS if size > system_size]
+    assert len(zoom_in) >= 2
+
+    try:
+        window.activateWindow()
+        qtbot.waitUntil(window.isActiveWindow, timeout=2000)
+        assert window.font_combo.currentData() == 0
+
+        qtbot.keyClick(window, Qt.Key.Key_Equal, Qt.KeyboardModifier.ControlModifier)
+        assert window.font_combo.currentData() == zoom_in[0]
+        assert tab.receive_panel.output.font().pointSize() == zoom_in[0]
+        assert tab.send_panel.editor.font().pointSize() == zoom_in[0]
+
+        qtbot.keyClick(window, Qt.Key.Key_Equal, Qt.KeyboardModifier.ControlModifier)
+        assert window.font_combo.currentData() == zoom_in[1]
+
+        qtbot.keyClick(window, Qt.Key.Key_Minus, Qt.KeyboardModifier.ControlModifier)
+        assert window.font_combo.currentData() == zoom_in[0]
+
+        qtbot.keyClick(window, Qt.Key.Key_Plus, Qt.KeyboardModifier.ControlModifier)
+        assert window.font_combo.currentData() == zoom_in[1]
+
+        window._save_config()
+        assert store.saves[-1].data_font_size == zoom_in[1]
+
+        qtbot.keyClick(window, Qt.Key.Key_0, Qt.KeyboardModifier.ControlModifier)
+        assert window.font_combo.currentData() == 0
+        assert tab.receive_panel.output.font().pointSize() == system_size
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_ctrl_wheel_over_data_areas_zooms_font(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    system_size = data_font().pointSize()
+    zoom_in = [size for size in DATA_FONT_PRESETS if size > system_size]
+    assert len(zoom_in) >= 2
+
+    try:
+        QApplication.sendEvent(
+            tab.receive_panel.output.viewport(),
+            _wheel(120, Qt.KeyboardModifier.NoModifier),
+        )
+        assert window.font_combo.currentData() == 0
+
+        QApplication.sendEvent(
+            tab.receive_panel.output.viewport(),
+            _wheel(120, Qt.KeyboardModifier.ControlModifier),
+        )
+        assert window.font_combo.currentData() == zoom_in[0]
+        assert tab.send_panel.editor.font().pointSize() == zoom_in[0]
+
+        QApplication.sendEvent(
+            tab.send_panel.editor.viewport(),
+            _wheel(120, Qt.KeyboardModifier.ControlModifier),
+        )
+        assert window.font_combo.currentData() == zoom_in[1]
+
+        QApplication.sendEvent(
+            tab.send_panel.editor.viewport(),
+            _wheel(-120, Qt.KeyboardModifier.ControlModifier),
+        )
+        assert window.font_combo.currentData() == zoom_in[0]
+        assert tab.receive_panel.output.font().pointSize() == zoom_in[0]
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_font_menu_exposes_zoom_actions(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+
+    try:
+        assert window.font_menu.title() == "字号"
+        assert [action.text() for action in window.font_menu.actions()] == [
+            "放大",
+            "缩小",
+            "恢复默认",
+        ]
+        assert window.font_zoom_in_action.shortcut().toString() == "Ctrl+="
+        assert window.font_zoom_out_action.shortcut().toString() == "Ctrl+-"
+        assert window.font_reset_action.shortcut().toString() == "Ctrl+0"
+        assert any(action.menu() is window.font_menu for action in window.main_menu.actions())
+
+        window.font_zoom_in_action.trigger()
+        assert window.font_combo.currentData() > 0
+
+        window.font_reset_action.trigger()
+        assert window.font_combo.currentData() == 0
     finally:
         window.close()
 

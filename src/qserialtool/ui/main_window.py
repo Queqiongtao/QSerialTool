@@ -3,7 +3,7 @@
 from collections.abc import Callable
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QContextMenuEvent, QMouseEvent
+from PySide6.QtGui import QAction, QCloseEvent, QContextMenuEvent, QKeySequence, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -35,7 +35,7 @@ from qserialtool.domain import (
 )
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import SessionTab
-from qserialtool.ui.theme_manager import DATA_FONT_PRESETS, apply_theme
+from qserialtool.ui.theme_manager import DATA_FONT_PRESETS, apply_theme, data_font
 
 _THEMES: tuple[tuple[str, Theme], ...] = (
     ("跟随系统", "system"),
@@ -95,30 +95,33 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
 
+        self._build_font_actions()
+
         self.main_menu = QMenu(self)
         self.main_menu.addAction(new_action)
         self.main_menu.addAction(close_action)
+        self.main_menu.addMenu(self.font_menu)
         self.main_menu.addSeparator()
         self.main_menu.addAction(exit_action)
-        for action in (new_action, close_action, exit_action):
+        for action in (
+            new_action,
+            close_action,
+            exit_action,
+            self.font_zoom_in_action,
+            self.font_zoom_out_action,
+            self.font_reset_action,
+        ):
             # 去掉菜单栏和工具栏后，动作必须挂到窗口上，快捷键才会继续生效。
             self.addAction(action)
 
         self.menu_button = QToolButton()
         self.menu_button.setText("☰")
         self.menu_button.setAutoRaise(True)
-        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 退出")
+        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 退出")
         self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu_button.setMenu(self.main_menu)
 
-        self.theme_combo = QComboBox()
-        for label, value in _THEMES:
-            self.theme_combo.addItem(label, value)
-        index = self.theme_combo.findData(self._theme)
-        self.theme_combo.setCurrentIndex(index if index >= 0 else 0)
-        self.theme_combo.setFixedHeight(22)
-        self.theme_combo.setMinimumWidth(88)
-        self.theme_combo.currentIndexChanged.connect(self._theme_changed)
+        self.theme_combo = self._build_theme_combo()
 
         self.font_combo = self._build_font_combo()
 
@@ -156,6 +159,34 @@ class MainWindow(QMainWindow):
         combo.setMinimumWidth(64)
         combo.currentIndexChanged.connect(self._font_size_changed)
         return combo
+
+    def _build_theme_combo(self) -> QComboBox:
+        """构造全局主题下拉框。"""
+        combo = QComboBox()
+        for label, value in _THEMES:
+            combo.addItem(label, value)
+        index = combo.findData(self._theme)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.setFixedHeight(22)
+        combo.setMinimumWidth(88)
+        combo.currentIndexChanged.connect(self._theme_changed)
+        return combo
+
+    def _build_font_actions(self) -> None:
+        """构造字号缩放动作与“字号”子菜单。"""
+        self.font_zoom_in_action = QAction("放大", self)
+        self.font_zoom_in_action.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
+        self.font_zoom_in_action.triggered.connect(lambda: self._zoom_font(1))
+        self.font_zoom_out_action = QAction("缩小", self)
+        self.font_zoom_out_action.setShortcut("Ctrl+-")
+        self.font_zoom_out_action.triggered.connect(lambda: self._zoom_font(-1))
+        self.font_reset_action = QAction("恢复默认", self)
+        self.font_reset_action.setShortcut("Ctrl+0")
+        self.font_reset_action.triggered.connect(self._reset_font_size)
+        self.font_menu = QMenu("字号", self)
+        self.font_menu.addAction(self.font_zoom_in_action)
+        self.font_menu.addAction(self.font_zoom_out_action)
+        self.font_menu.addAction(self.font_reset_action)
 
     def _new_session(self, _checked: bool = False) -> None:
         """标签栏“+”按钮和“☰”菜单共用的零参数入口。
@@ -219,6 +250,7 @@ class MainWindow(QMainWindow):
             content_splitter_state=layout_state[2],
         )
         tab.set_data_font_size(self._data_font_size)
+        tab.font_zoom_requested.connect(self._zoom_font)
         tab.preferences_changed.connect(self._schedule_save)
         index = self.tabs.addTab(tab, controller.title)
         self.tabs.setTabToolTip(index, controller.title)
@@ -337,6 +369,31 @@ class MainWindow(QMainWindow):
             if isinstance(widget, SessionTab):
                 widget.set_data_font_size(size)
         self._schedule_save()
+
+    def _zoom_font(self, step: int) -> None:
+        """按预设档位放大或缩小全局字号，到达边界后保持不变。"""
+        presets = DATA_FONT_PRESETS
+        size = self.font_combo.currentData()
+        if isinstance(size, int) and size > 0:
+            effective = size
+        else:
+            system_size = data_font().pointSize()
+            effective = system_size if system_size > 0 else presets[0]
+        if step > 0:
+            candidates = [value for value in presets if value > effective]
+            target = candidates[0] if candidates else presets[-1]
+        else:
+            candidates = [value for value in presets if value < effective]
+            target = candidates[-1] if candidates else presets[0]
+        index = self.font_combo.findData(target)
+        if index >= 0:
+            self.font_combo.setCurrentIndex(index)
+
+    def _reset_font_size(self) -> None:
+        """恢复为跟随系统的默认字号。"""
+        index = self.font_combo.findData(0)
+        if index >= 0:
+            self.font_combo.setCurrentIndex(index)
 
     def _schedule_save(self) -> None:
         if self._config_store is not None:
