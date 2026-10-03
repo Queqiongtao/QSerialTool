@@ -34,6 +34,11 @@ _FLOW_CONTROLS = (
     ("RTS/CTS", "rtscts"),
     ("DSR/DTR", "dsrdtr"),
 )
+_ENCODINGS = (
+    ("UTF-8", "utf-8"),
+    ("GB18030", "gb18030"),
+    ("ASCII", "ascii"),
+)
 
 # 自动枚举周期放宽到 30 s，热插拔主要靠端口行右侧的刷新按钮即时感知。
 _PORT_REFRESH_INTERVAL_MS = 30_000
@@ -66,6 +71,30 @@ class ConnectionPanel(QGroupBox):
         self.apply_snapshot(controller.snapshot)
 
     def _build_ui(self) -> None:
+        self._build_connection_inputs()
+        layout = QFormLayout(self)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        port_row = QWidget()
+        port_row_layout = QHBoxLayout(port_row)
+        port_row_layout.setContentsMargins(0, 0, 0, 0)
+        port_row_layout.setSpacing(4)
+        port_row_layout.addWidget(self.port_combo, 1)
+        port_row_layout.addWidget(self.refresh_button)
+        layout.addRow("端口", port_row)
+        layout.addRow("波特率", self.baud_combo)
+        layout.addRow("数据位", self.bytesize_combo)
+        layout.addRow("校验位", self.parity_combo)
+        layout.addRow("停止位", self.stopbits_combo)
+        layout.addRow("流控", self.flow_combo)
+        layout.addRow("编码", self.encoding_combo)
+        line_layout = QHBoxLayout()
+        line_layout.addWidget(self.dtr_check)
+        line_layout.addWidget(self.rts_check)
+        line_layout.addStretch(1)
+        layout.addRow("线路", line_layout)
+        layout.addRow(self.connect_button)
+
+    def _build_connection_inputs(self) -> None:
         self.port_combo = QComboBox()
         self.port_combo.setEditable(True)
         self.port_combo.setMinimumWidth(120)
@@ -91,6 +120,9 @@ class ConnectionPanel(QGroupBox):
         self.flow_combo = QComboBox()
         for label, value in _FLOW_CONTROLS:
             self.flow_combo.addItem(label, value)
+        self.encoding_combo = QComboBox()
+        for label, value in _ENCODINGS:
+            self.encoding_combo.addItem(label, value)
         self.dtr_check = QCheckBox("DTR")
         self.rts_check = QCheckBox("RTS")
         self.connect_button = QPushButton("连接")
@@ -105,29 +137,9 @@ class ConnectionPanel(QGroupBox):
             self.parity_combo,
             self.stopbits_combo,
             self.flow_combo,
+            self.encoding_combo,
         ):
             combo.currentIndexChanged.connect(self._config_changed)
-
-        layout = QFormLayout(self)
-        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        port_row = QWidget()
-        port_row_layout = QHBoxLayout(port_row)
-        port_row_layout.setContentsMargins(0, 0, 0, 0)
-        port_row_layout.setSpacing(4)
-        port_row_layout.addWidget(self.port_combo, 1)
-        port_row_layout.addWidget(self.refresh_button)
-        layout.addRow("端口", port_row)
-        layout.addRow("波特率", self.baud_combo)
-        layout.addRow("数据位", self.bytesize_combo)
-        layout.addRow("校验位", self.parity_combo)
-        layout.addRow("停止位", self.stopbits_combo)
-        layout.addRow("流控", self.flow_combo)
-        line_layout = QHBoxLayout()
-        line_layout.addWidget(self.dtr_check)
-        line_layout.addWidget(self.rts_check)
-        line_layout.addStretch(1)
-        layout.addRow("线路", line_layout)
-        layout.addRow(self.connect_button)
 
     def apply_snapshot(self, snapshot: SessionSnapshot) -> None:
         """根据会话状态更新控件。"""
@@ -142,6 +154,7 @@ class ConnectionPanel(QGroupBox):
                 self._select_data(self.parity_combo, snapshot.config.parity)
                 self._select_data(self.stopbits_combo, snapshot.config.stopbits)
                 self._select_data(self.flow_combo, snapshot.config.flow_control)
+                self._select_data(self.encoding_combo, snapshot.config.encoding)
                 if snapshot.config.port:
                     self.port_combo.setEditText(snapshot.config.port)
             self._set_editable(snapshot.state in {SessionState.DISCONNECTED, SessionState.ERROR})
@@ -183,7 +196,7 @@ class ConnectionPanel(QGroupBox):
             flow_control=self.flow_combo.currentData(),
             dtr=self.dtr_check.isChecked(),
             rts=self.rts_check.isChecked(),
-            encoding=self._controller.config.encoding,
+            encoding=self.encoding_combo.currentData(),
         )
 
     def _config_changed(self) -> None:
@@ -315,6 +328,7 @@ class ConnectionPanel(QGroupBox):
             self.parity_combo,
             self.stopbits_combo,
             self.flow_combo,
+            self.encoding_combo,
         ):
             widget.setEnabled(enabled)
 

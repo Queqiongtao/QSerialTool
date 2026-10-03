@@ -1065,3 +1065,100 @@ def test_ask_session_title_uses_dialog_editor(qtbot: object, monkeypatch: object
         assert captured.get("initial") == "会话 1"
     finally:
         window.close()
+
+
+def test_connection_panel_exposes_encoding_options(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    combo = _current_tab(window).connection_panel.encoding_combo
+
+    try:
+        assert [combo.itemData(index) for index in range(combo.count())] == [
+            "utf-8",
+            "gb18030",
+            "ascii",
+        ]
+        assert combo.currentData() == "utf-8"
+    finally:
+        window.close()
+
+
+def test_connection_panel_build_config_uses_selected_encoding(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    combo = tab.connection_panel.encoding_combo
+
+    try:
+        combo.setCurrentIndex(combo.findData("gb18030"))
+
+        assert tab.connection_panel.build_config().encoding == "gb18030"
+    finally:
+        window.close()
+
+
+def test_encoding_combo_locks_while_connected(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    combo = tab.connection_panel.encoding_combo
+
+    try:
+        _connect(qtbot, tab)
+        assert not combo.isEnabled()
+
+        _disconnect(qtbot, tab)
+        qtbot.waitUntil(combo.isEnabled, timeout=2000)
+        assert combo.isEnabled()
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_encoding_selection_persists_and_restores(qtbot: object) -> None:
+    transport = FakeTransport()
+    store = _RecordingStore()
+    window = _window_with_store(qtbot, transport, store)
+    tab = _current_tab(window)
+    combo = tab.connection_panel.encoding_combo
+
+    try:
+        combo.setCurrentIndex(combo.findData("gb18030"))
+        window._save_timer.stop()
+        window._save_config()
+
+        assert store.saves[-1].sessions[0].config.encoding == "gb18030"
+    finally:
+        window.close()
+
+    preferences = SessionPreferences(
+        title="gb18030",
+        config=SerialConfig(port="", encoding="gb18030"),
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+    )
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(preferences,),
+    )
+    manager = SessionManager(transport_factory=FakeTransport, clock=FakeClock())
+    restored = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        initial_config=config,
+    )
+    qtbot.addWidget(restored)
+    restored.show()
+    restored_tab = _current_tab(restored)
+
+    try:
+        assert restored_tab.connection_panel.encoding_combo.currentData() == "gb18030"
+    finally:
+        restored.close()
