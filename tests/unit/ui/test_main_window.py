@@ -29,6 +29,8 @@ from qserialtool.domain import (
     SessionState,
 )
 from qserialtool.ui import MainWindow, ReceivePanel, SessionTab, data_colors
+from qserialtool.ui.terminal_output import TerminalOutput
+from qserialtool.ui.theme_manager import ansi_color, highlight_colors
 
 
 def _window(qtbot: object, transport: FakeTransport) -> MainWindow:
@@ -668,6 +670,49 @@ def test_terminal_applies_ansi_colors_and_wide_characters(qtbot: object) -> None
         assert screen is not None
         assert screen.lines()[0][0].style.fg == 1
         assert screen.lines()[0][1].trailing is True
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def _fragment_formats(output: TerminalOutput) -> list[tuple[str, str]]:
+    """按顺序返回文档片段的 (文本, 前景色)，用于断言渲染配色。"""
+    formats: list[tuple[str, str]] = []
+    block = output.document().firstBlock()
+    while block.isValid():
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment is not None and fragment.text():
+                color = fragment.charFormat().foreground().color().name()
+                formats.append((fragment.text(), color))
+            iterator += 1
+        block = block.next()
+    return formats
+
+
+def test_terminal_highlights_addresses_and_links_but_keeps_ansi_colors(
+    qtbot: object,
+) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        _connect(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"ip 10.0.0.1 link https://a.com/x\r\n")
+        transport.push_read(b"\x1b[31m10.0.0.1\x1b[0m\r\n")
+
+        qtbot.waitUntil(lambda: output.toPlainText().count("10.0.0.1") == 2, timeout=2000)
+        formats = _fragment_formats(output)
+        colors = highlight_colors()
+
+        assert ("10.0.0.1", colors.address) in formats
+        assert ("https://a.com/x", colors.link) in formats
+        assert ("10.0.0.1", ansi_color(1)) in formats
     finally:
         tab.controller.close(force=True)
         window.close()

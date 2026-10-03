@@ -7,7 +7,7 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
 from qserialtool.ui import apply_theme, data_colors, resolved_theme
-from qserialtool.ui.theme_manager import ansi_color
+from qserialtool.ui.theme_manager import ansi_color, highlight_colors
 
 _DATA_COLOR_FIELDS = ("rx", "tx", "system", "connected", "error", "pending", "idle")
 
@@ -96,3 +96,12 @@ def test_ansi_color_uses_theme_for_low_indices(
 def test_ansi_color_rejects_out_of_range_index() -> None:
     with pytest.raises(ValueError):
         ansi_color(256)
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_highlight_colors_meet_contrast_targets(app: QApplication, theme_name: str) -> None:
+    apply_theme(app, theme_name)
+    background = _base_color(app)
+    colors = highlight_colors()
+    assert _contrast(colors.address, background) >= 4.5
+    assert _contrast(colors.link, background) >= 4.5

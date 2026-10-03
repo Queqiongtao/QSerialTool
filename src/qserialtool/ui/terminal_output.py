@@ -17,7 +17,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
 from qserialtool.domain import TerminalCell, TerminalScreen, TerminalStyle
-from qserialtool.ui.theme_manager import ansi_color, data_colors
+from qserialtool.ui.terminal_highlight import find_highlights
+from qserialtool.ui.theme_manager import ansi_color, data_colors, highlight_colors
 
 # 画面只渲染最近若干行，更早的滚动历史由终端模型保留。
 _MAX_RENDERED_ROWS = 2000
@@ -134,15 +135,16 @@ class TerminalOutput(QPlainTextEdit):
             cursor.setCharFormat(self._format_for(data_colors().system))
             cursor.insertText(f"… 已隐藏较早的 {hidden} 行\n")
         for index, row in enumerate(visible):
+            highlights = self._highlight_overrides(row)
             if index == cursor_row:
-                self._write_cells(cursor, row, 0, cursor_col)
+                self._write_cells(cursor, row, 0, cursor_col, highlights)
                 self._input_start_position = cursor.position()
                 cursor.setCharFormat(self._format_for_style(TerminalStyle()))
                 if self._draft:
                     cursor.insertText(self._draft)
                 self._cursor_block_number = cursor.blockNumber()
             else:
-                self._write_cells(cursor, row, 0, None)
+                self._write_cells(cursor, row, 0, None, highlights)
             if index != len(visible) - 1:
                 cursor.insertText("\n")
         cursor.endEditBlock()
@@ -155,6 +157,7 @@ class TerminalOutput(QPlainTextEdit):
         row: tuple[TerminalCell, ...],
         start: int,
         end: int | None,
+        highlights: dict[int, str],
     ) -> None:
         limit = len(row) if end is None else min(end, len(row))
         index = start
@@ -164,12 +167,18 @@ class TerminalOutput(QPlainTextEdit):
                 index += 1
                 continue
             style = cell.style
+            override = highlights.get(index)
             text = cell.char
             index += 1
-            while index < limit and not row[index].trailing and row[index].style == style:
+            while (
+                index < limit
+                and not row[index].trailing
+                and row[index].style == style
+                and highlights.get(index) == override
+            ):
                 text += row[index].char
                 index += 1
-            cursor.setCharFormat(self._format_for_style(style))
+            cursor.setCharFormat(self._format_for_style(style, override))
             cursor.insertText(text)
         if end is not None and end > len(row):
             cursor.setCharFormat(self._format_for_style(TerminalStyle()))
@@ -180,10 +189,41 @@ class TerminalOutput(QPlainTextEdit):
         text_format.setForeground(QColor(color))
         return text_format
 
-    def _format_for_style(self, style: TerminalStyle) -> QTextCharFormat:
+    def _highlight_overrides(self, row: tuple[TerminalCell, ...]) -> dict[int, str]:
+        """按行文本匹配地址与链接，返回需要改色的单元格索引到颜色。"""
+        matches = find_highlights("".join(cell.char for cell in row))
+        if not matches:
+            return {}
+        colors = highlight_colors()
+        palette = {"address": colors.address, "link": colors.link}
+        positions: list[tuple[int, int, int]] = []
+        offset = 0
+        for cell_index, cell in enumerate(row):
+            length = len(cell.char)
+            positions.append((offset, offset + length, cell_index))
+            offset += length
+        overrides: dict[int, str] = {}
+        for start, end, kind in matches:
+            for cell_start, cell_end, cell_index in positions:
+                if cell_start >= end:
+                    break
+                cell = row[cell_index]
+                if cell.trailing or cell.style.fg is not None:
+                    continue
+                if cell_end > start:
+                    overrides[cell_index] = palette[kind]
+        return overrides
+
+    def _format_for_style(
+        self,
+        style: TerminalStyle,
+        override: str | None = None,
+    ) -> QTextCharFormat:
         text_format = QTextCharFormat()
         palette = self.palette()
-        if style.fg is None:
+        if override is not None:
+            text_format.setForeground(QColor(override))
+        elif style.fg is None:
             text_format.setForeground(palette.color(QPalette.ColorRole.Text))
         else:
             text_format.setForeground(QColor(ansi_color(style.fg)))

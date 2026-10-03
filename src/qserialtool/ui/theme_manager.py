@@ -66,6 +66,20 @@ _THEME_COLORS: dict[str, DataColors] = {
     ),
 }
 
+
+@dataclass(frozen=True, slots=True)
+class HighlightColors:
+    """终端模式高亮使用的颜色。"""
+
+    address: str
+    link: str
+
+
+_HIGHLIGHT_COLORS: dict[str, HighlightColors] = {
+    "light": HighlightColors(address="#8b2f8f", link="#0e7490"),
+    "dark": HighlightColors(address="#d9a2f5", link="#6fd7e6"),
+}
+
 # ANSI 16 色语义索引，终端模型只存索引，渲染时再映射到当前主题。
 _ANSI_COLORS: dict[str, tuple[str, ...]] = {
     "light": (
@@ -147,6 +161,11 @@ def data_colors() -> DataColors:
 def ansi_colors() -> tuple[str, ...]:
     """返回当前主题下的 ANSI 16 色，索引与 SGR 语义一致。"""
     return _ANSI_COLORS[_ThemeState.resolved]
+
+
+def highlight_colors() -> HighlightColors:
+    """返回当前主题下的终端模式高亮颜色。"""
+    return _HIGHLIGHT_COLORS[_ThemeState.resolved]
 
 
 def ansi_color(index: int) -> str:
