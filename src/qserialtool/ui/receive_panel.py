@@ -190,6 +190,7 @@ class ReceivePanel(QWidget):
         self._header_layout = header
         self._header_overflow = _HeaderOverflow(self, header)
         heading = QLabel("接收")
+        heading.setObjectName("panelHeading")
         self._heading_label = heading
         heading_font = heading.font()
         heading_font.setBold(True)

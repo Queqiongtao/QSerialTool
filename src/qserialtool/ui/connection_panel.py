@@ -126,6 +126,7 @@ class ConnectionPanel(QGroupBox):
         self.dtr_check = QCheckBox("DTR")
         self.rts_check = QCheckBox("RTS")
         self.connect_button = QPushButton("连接")
+        self.connect_button.setProperty("primary", True)
         self.connect_button.clicked.connect(self._toggle_connection)
         self.dtr_check.toggled.connect(self._line_state_changed)
         self.rts_check.toggled.connect(self._line_state_changed)

@@ -291,9 +291,11 @@ class SessionTab(QWidget):
     def _build_status_strip(self) -> None:
         self.state_indicator = QLabel("●")
         self.status_label = QLabel()
+        self.status_label.setObjectName("statusText")
         self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.status_frame = QFrame()
+        self.status_frame.setObjectName("statusFrame")
         self.status_frame.setFrameShape(QFrame.Shape.StyledPanel)
         status_layout = QHBoxLayout(self.status_frame)
         status_layout.setContentsMargins(8, 2, 8, 2)

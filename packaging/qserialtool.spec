@@ -1,6 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller single-file build definition."""
 
+import sys
+
 from pathlib import Path
 
 project_root = Path(SPECPATH).parent
@@ -13,6 +15,10 @@ a = Analysis(
     datas=[
         (str(project_root / "LICENSE"), "."),
         (str(project_root / "THIRD_PARTY_NOTICES.md"), "."),
+        (
+            str(source_root / "qserialtool" / "ui" / "assets"),
+            "qserialtool/ui/assets",
+        ),
     ],
     hiddenimports=["serial.tools.list_ports"],
     hookspath=[],
@@ -24,6 +30,12 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+icon = (
+    str(source_root / "qserialtool" / "ui" / "assets" / "qserialtool.ico")
+    if sys.platform == "win32"
+    else None
+)
+
 exe = EXE(
     pyz,
     a.scripts,
@@ -31,6 +43,7 @@ exe = EXE(
     a.datas,
     [],
     name="QSerialTool",
+    icon=icon,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

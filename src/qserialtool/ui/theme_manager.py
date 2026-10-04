@@ -8,17 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from qserialtool.domain import Theme
 
-_DARK_ROLES: tuple[tuple[QPalette.ColorRole, str], ...] = (
-    (QPalette.ColorRole.Window, "#202225"),
-    (QPalette.ColorRole.WindowText, "#e6e6e6"),
-    (QPalette.ColorRole.Base, "#17191c"),
-    (QPalette.ColorRole.AlternateBase, "#292c30"),
-    (QPalette.ColorRole.Text, "#e6e6e6"),
-    (QPalette.ColorRole.Button, "#2e3135"),
-    (QPalette.ColorRole.ButtonText, "#e6e6e6"),
-    (QPalette.ColorRole.Highlight, "#2f6fa8"),
-    (QPalette.ColorRole.HighlightedText, "#ffffff"),
-)
+from .style_sheet import ThemeTokens, build_stylesheet, tokens
 
 _DISABLED_TEXT_ROLES = (
     QPalette.ColorRole.WindowText,
@@ -26,10 +16,22 @@ _DISABLED_TEXT_ROLES = (
     QPalette.ColorRole.ButtonText,
 )
 
-_PLACEHOLDER_COLORS = {"light": "#666666", "dark": "#8f959c"}
 
-# 浅色主题沿用平台自带的禁用态配色，深色主题必须显式指定，否则禁用控件与可用控件同样醒目。
-_DISABLED_TEXT_COLORS: dict[str, str | None] = {"light": None, "dark": "#8f959c"}
+def _palette_roles(colors: ThemeTokens) -> tuple[tuple[QPalette.ColorRole, str], ...]:
+    """把主题令牌映射为调色板角色，样式表中的同名颜色必须与之一致。"""
+    return (
+        (QPalette.ColorRole.Window, colors.window),
+        (QPalette.ColorRole.WindowText, colors.text),
+        (QPalette.ColorRole.Base, colors.editor),
+        (QPalette.ColorRole.AlternateBase, colors.subtle),
+        (QPalette.ColorRole.Text, colors.text),
+        (QPalette.ColorRole.Button, colors.surface),
+        (QPalette.ColorRole.ButtonText, colors.text),
+        (QPalette.ColorRole.Highlight, colors.accent_fill),
+        (QPalette.ColorRole.HighlightedText, "#FFFFFF"),
+        (QPalette.ColorRole.ToolTipBase, colors.surface),
+        (QPalette.ColorRole.ToolTipText, colors.text),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,17 +219,18 @@ def data_font(size: int = 0) -> QFont:
 
 
 def apply_theme(app: QApplication, theme: Theme) -> None:
-    """为应用设置统一调色板。"""
+    """为应用设置统一调色板与全局样式表。"""
     resolved = resolve_theme(theme)
     _ThemeState.resolved = resolved
     app.setStyle("Fusion")
+    colors = tokens(resolved)
     palette = app.style().standardPalette()
+    for role, value in _palette_roles(colors):
+        palette.setColor(role, QColor(value))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(colors.muted))
+    # 浅色沿用平台自带的禁用态配色；深色必须显式指定，否则禁用控件与可用控件同样醒目。
     if resolved == "dark":
-        for role, value in _DARK_ROLES:
-            palette.setColor(role, QColor(value))
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(_PLACEHOLDER_COLORS[resolved]))
-    disabled_text = _DISABLED_TEXT_COLORS[resolved]
-    if disabled_text is not None:
         for role in _DISABLED_TEXT_ROLES:
-            palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(disabled_text))
+            palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(colors.muted))
     app.setPalette(palette)
+    app.setStyleSheet(build_stylesheet(resolved))

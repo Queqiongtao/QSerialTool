@@ -75,6 +75,7 @@ class SendPanel(QWidget):
         header = QHBoxLayout()
         header.setSpacing(6)
         self.heading_label = QLabel("发送")
+        self.heading_label.setObjectName("panelHeading")
         heading_font = self.heading_label.font()
         heading_font.setBold(True)
         self.heading_label.setFont(heading_font)
@@ -86,6 +87,7 @@ class SendPanel(QWidget):
             self.newline_combo.addItem(label, value)
         self.newline_combo.setCurrentIndex(self.newline_combo.findData(DEFAULT_LINE_ENDING))
         self.send_button = QPushButton("发送")
+        self.send_button.setProperty("primary", True)
         self.send_button.setToolTip("Ctrl+Enter")
         self.send_button.clicked.connect(self.send)
         for widget in (self.mode_combo, self.newline_combo, self.send_button):

@@ -33,6 +33,7 @@ from qserialtool.domain import (
     SessionState,
     Theme,
 )
+from qserialtool.ui.app_icon import app_icon
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
 from qserialtool.ui.theme_manager import (
@@ -86,6 +87,7 @@ class MainWindow(QMainWindow):
         self.tabs.tabCloseRequested.connect(self._close_tab)
         self.setCentralWidget(self.tabs)
         self.setWindowTitle(f"QSerialTool {__version__}")
+        self.setWindowIcon(app_icon())
         self.resize(1180, 760)
         self.setMinimumSize(900, 600)
         self._build_actions()
@@ -258,7 +260,6 @@ class MainWindow(QMainWindow):
             width=layout_state[1],
             content_splitter_state=layout_state[2],
         )
-        tab.set_data_font_size(self._data_font_size)
         tab.font_zoom_requested.connect(self._zoom_font)
         tab.preferences_changed.connect(self._schedule_save)
         index = self.tabs.addTab(tab, controller.title)
@@ -267,6 +268,8 @@ class MainWindow(QMainWindow):
             lambda title, widget=tab: self._on_tab_title_changed(widget, title)
         )
         self.tabs.setCurrentIndex(index)
+        # 全局样式表会在挂载时重新 polish 控件并覆盖之前设置的字体，必须在其后重新应用。
+        tab.set_data_font_size(self._data_font_size)
         self._schedule_save()
         return tab
 
@@ -365,6 +368,8 @@ class MainWindow(QMainWindow):
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
             if isinstance(widget, SessionTab):
+                # apply_theme() 重新应用样式表会重置数据区字体，主题切换后必须补一次。
+                widget.set_data_font_size(self._data_font_size)
                 widget.refresh_theme()
         self._schedule_save()
 

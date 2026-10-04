@@ -1084,6 +1084,15 @@ def test_window_minimum_size_matches_layout_target(qtbot: object) -> None:
     window.close()
 
 
+def test_main_window_uses_app_icon(qtbot: object) -> None:
+    window = _window(qtbot, FakeTransport())
+
+    try:
+        assert not window.windowIcon().isNull()
+    finally:
+        window.close()
+
+
 def test_data_panels_use_monospace_font(qtbot: object) -> None:
     transport = FakeTransport()
     window = _window(qtbot, transport)
@@ -1228,6 +1237,23 @@ def test_font_size_restored_from_config_and_persisted(qtbot: object) -> None:
         window.close()
 
 
+def test_theme_change_keeps_data_font_size(qtbot: object) -> None:
+    """样式表刷新会重新 polish 控件，数据区字号必须在主题切换后保持不变。"""
+    window = _window(qtbot, FakeTransport())
+    tab = _current_tab(window)
+
+    try:
+        window.font_combo.setCurrentIndex(window.font_combo.findData(18))
+        assert tab.receive_panel.output.font().pointSize() == 18
+
+        window.theme_combo.setCurrentIndex(window.theme_combo.findData("dark"))
+
+        assert tab.receive_panel.output.font().pointSize() == 18
+        assert tab.send_panel.editor.font().pointSize() == 18
+    finally:
+        window.close()
+
+
 def _wheel(delta: int, modifiers: Qt.KeyboardModifier) -> QWheelEvent:
     position = QPointF(5, 5)
     return QWheelEvent(
@@ -1350,7 +1376,8 @@ def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
     window = _window(qtbot, transport)
     tab = _current_tab(window)
 
-    assert tab.send_panel.minimumSizeHint().width() <= 520
+    # 上限跟随 QSS 控件内边距：900px 窗口下发送区可用宽度约 600px，仍留足余量。
+    assert tab.send_panel.minimumSizeHint().width() <= 560
 
     window.resize(900, 600)
     receive_panel = tab.receive_panel

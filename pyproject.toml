@@ -58,7 +58,12 @@ include = ["qserialtool*"]
 version = { attr = "qserialtool.__version__" }
 
 [tool.setuptools.package-data]
-qserialtool = ["py.typed"]
+qserialtool = [
+  "py.typed",
+  "ui/assets/*.svg",
+  "ui/assets/*.png",
+  "ui/assets/*.ico",
+]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
