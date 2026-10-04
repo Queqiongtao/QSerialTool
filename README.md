@@ -71,7 +71,13 @@ Linux 环境使用 `./.venv/bin/python -m qserialtool`。
 
 ## 构建单文件
 
-Windows：
+Windows（在仓库根目录双击 `build.bat`，或执行）：
+
+```powershell
+.\build.bat
+```
+
+也可以直接调用底层脚本：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1

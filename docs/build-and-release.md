@@ -11,7 +11,13 @@ Windows 和 Linux 必须在对应操作系统上分别构建，不能交叉生�
 
 ## Windows 构建
 
-在 PowerShell 中运行：
+在仓库根目录双击 `build.bat`，或在终端运行：
+
+```powershell
+.\build.bat
+```
+
+`build.bat` 只是转调 `scripts\build.ps1`，两者等价；也可以直接调用 PowerShell 脚本：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1
