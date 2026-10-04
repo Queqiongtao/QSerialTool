@@ -227,7 +227,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-启用提交前文档同步 Hook：
+启用本地 Hook（`pre-commit` 文档同步与 `commit-msg` 提交信息校验）：
 
 ```powershell
 git config core.hooksPath .githooks
@@ -239,11 +239,16 @@ git config core.hooksPath .githooks
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --staged
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --base origin/main
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --working-tree
+.\.venv\Scripts\python.exe scripts\check_commit_message.py
+.\.venv\Scripts\python.exe scripts\check_commit_message.py --base origin/main
+.\.venv\Scripts\python.exe scripts\check_commit_message.py .git/COMMIT_EDITMSG
 ```
 
-规则位于 `docs/doc-sync-rules.json`。UI 变更必须至少同步用户手册或开发指南；domain/application 变更必须同步开发指南或 ADR；基础设施变更必须同步开发指南或用户手册；构建和项目元数据变更必须同步对应技术文档。未配置运行时路径会直接失败。
+规则位于 `docs/doc-sync-rules.json`。每次变更都必须在同一提交中更新或新增至少一个文档，纯测试变更可豁免但须在提交说明中注明理由，`AGENT.md` 变更必须同步 `implementation-plan.md`。具体映射：UI 变更必须至少同步用户手册或开发指南；domain/application 变更必须同步开发指南或 ADR；基础设施变更必须同步开发指南或用户手册；构建和项目元数据变更必须同步对应技术文档。未配置运行时路径会直接失败。
 
-GitHub Actions 在 push 和 pull request 上执行同一检查、Ruff 和离屏 pytest。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
+`scripts/check_commit_message.py` 校验提交信息是否使用 Conventional Commits 类型前缀并包含简体中文标题与正文，合并与回滚自动提交会被跳过。该检查是启发式门禁，只验证中文字符存在，语义质量仍由人工审查保证。
+
+GitHub Actions 在 push 和 pull request 上执行同一文档同步与提交信息检查、Ruff 和离屏 pytest。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
 
 ## 11. 扩展清单
 

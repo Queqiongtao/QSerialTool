@@ -27,8 +27,18 @@
     },
     {
       "name": "documentation-tooling",
-      "sources": [".githooks/**", ".github/**", "scripts/check_docs_sync.py"],
+      "sources": [
+        ".githooks/**",
+        ".github/**",
+        "scripts/check_docs_sync.py",
+        "scripts/check_commit_message.py"
+      ],
       "required_any": ["docs/developer-guide.md"]
+    },
+    {
+      "name": "agent-rules",
+      "sources": ["AGENT.md"],
+      "required_any": ["docs/implementation-plan.md"]
     }
   ],
   "unmapped_fail": [

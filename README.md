@@ -96,19 +96,20 @@ chmod +x scripts/build.sh
 
 ## 文档实时同步
 
-代码、测试和受影响的文档必须在同一提交中更新。首次克隆后启用本地 Hook：
+任何提交都必须在同一提交中更新或新增至少一个文档（纯测试变更需在提交说明中注明豁免理由），提交信息与文档统一使用简体中文。首次克隆后启用本地 Hook（`pre-commit` 文档同步与 `commit-msg` 提交信息校验）：
 
 ```powershell
 git config core.hooksPath .githooks
 ```
 
-文档同步检查也可手动执行：
+文档同步和提交信息检查也可手动执行：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --staged
+.\.venv\Scripts\python.exe scripts\check_commit_message.py
 ```
 
-GitHub Actions 会在 push 和 pull request 上再次校验文档同步、Ruff 和测试。
+GitHub Actions 会在 push 和 pull request 上再次校验文档同步、提交信息、Ruff 和测试。
 
 ## 许可证
 

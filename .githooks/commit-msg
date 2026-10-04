@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+if [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
+  PYTHON="$ROOT/.venv/Scripts/python.exe"
+elif [ -x "$ROOT/.venv/bin/python" ]; then
+  PYTHON="$ROOT/.venv/bin/python"
+else
+  echo "QSerialTool virtual environment not found under $ROOT/.venv" >&2
+  exit 1
+fi
+
+cd "$ROOT"
+exec "$PYTHON" scripts/check_commit_message.py "$1"

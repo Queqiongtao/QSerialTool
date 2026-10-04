@@ -1,9 +1,9 @@
 # QSerialTool 文档索引
 
-> 文档版本：1.0  
+> 文档版本：1.1  
 > 软件版本：0.1.0  
 > 对应基线提交：`cb6c23a`  
-> 更新时间：2026-10-02 09:32:11 CST（星期五）
+> 更新时间：2026-10-04 18:23:19 CST（星期日）
 
 ## 文档职责
 
@@ -28,15 +28,16 @@
 
 ## 实时同步规则
 
-代码、测试和受影响的文档必须位于同一提交：
+任何提交都必须在同一提交中更新或新增至少一个文档，纯测试变更可豁免但须在提交说明中注明理由。代码、测试和文档的语言统一为简体中文：
 
 - UI 行为变化：更新 `user-guide.md`；实现结构变化同时更新 `developer-guide.md`。
 - domain/application 变化：更新 `developer-guide.md`；涉及架构决策时新增或更新 ADR。
 - infrastructure 变化：按影响更新 `developer-guide.md` 或 `user-guide.md`。
 - 构建、依赖和发布方式变化：更新构建文档、发布清单或第三方声明。
-- 纯测试和纯文档变更不要求额外文档。
+- `AGENT.md` 规则变化：同步更新 `implementation-plan.md`。
+- 纯测试变更可豁免文档更新，但必须在提交说明中注明理由。
 
-机器规则配置在 `doc-sync-rules.json`。启用本地 Hook：
+机器规则配置在 `doc-sync-rules.json`。启用本地 Hook（`pre-commit` 文档同步与 `commit-msg` 提交信息校验）：
 
 ```powershell
 git config core.hooksPath .githooks
@@ -48,6 +49,8 @@ git config core.hooksPath .githooks
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --staged
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --base origin/main
 .\.venv\Scripts\python.exe scripts\check_docs_sync.py --working-tree
+.\.venv\Scripts\python.exe scripts\check_commit_message.py
+.\.venv\Scripts\python.exe scripts\check_commit_message.py --base origin/main
 ```
 
-GitHub Actions 会在 push 和 pull request 上再次执行文档同步、Ruff 和 pytest。机器检查只能保证相关文档被纳入同一变更，内容准确性仍需代码审查确认。
+GitHub Actions 会在 push 和 pull request 上再次执行文档同步、提交信息中文校验、Ruff 和 pytest。机器检查只能保证相关文档被纳入同一变更、提交信息包含中文，内容准确性仍需代码审查确认。

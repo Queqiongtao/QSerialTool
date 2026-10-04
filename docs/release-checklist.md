@@ -5,8 +5,9 @@
 - [ ] 版本号与发布说明一致。
 - [x] `README.md`、`LICENSE`、`THIRD_PARTY_NOTICES.md` 完整。
 - [x] `docs/user-guide.md`、`docs/developer-guide.md` 和 `docs/README.md` 完整。
-- [ ] `AGENT.md`、实施计划和架构决策记录已同步。
+- [ ] `AGENT.md`、实施计划和架构决策记录已同步，提交信息与文档使用简体中文。
 - [ ] 本地 Hook 已启用，文档同步检查通过。
+- [ ] 提交信息中文检查（本地 `commit-msg` 钩子或 CI）通过。
 - [ ] GitHub Actions 文档、Ruff 和 pytest 门禁通过。
 - [ ] 工作区干净，目标提交已推送。
 
