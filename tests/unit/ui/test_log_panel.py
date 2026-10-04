@@ -37,3 +37,24 @@ def test_log_panel_elides_long_status_text(qtbot: object) -> None:
         assert panel.status_label.toolTip() == _LONG_STATUS
     finally:
         controller.close(force=True)
+
+
+def test_log_panel_directory_row_layout(qtbot: object) -> None:
+    controller = _controller()
+    panel = LogPanel(controller=controller)
+    qtbot.addWidget(panel)
+
+    try:
+        panel.show()
+        panel.resize(272, 200)
+        qtbot.wait(50)
+
+        # 面板必须能塞进侧栏最小宽度，否则路径和按钮会被右侧裁掉。
+        assert panel.minimumSizeHint().width() <= 260
+        # 路径独占一行并铺满内容宽度；“选择目录/打开目录”等宽，“导出”独占整行。
+        content_right = panel.export_button.geometry().right()
+        assert panel.directory_edit.geometry().right() == content_right
+        assert panel.browse_button.width() == panel.open_button.width()
+        assert panel.export_button.width() > panel.browse_button.width()
+    finally:
+        controller.close(force=True)

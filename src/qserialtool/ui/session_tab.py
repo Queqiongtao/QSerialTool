@@ -35,6 +35,11 @@ from qserialtool.ui.receive_panel import ReceivePanel
 from qserialtool.ui.send_panel import SendPanel
 from qserialtool.ui.theme_manager import data_colors
 
+# 侧栏宽度约束：默认略窄，避免拖动后留下大片横向空白；下限与领域模型保持一致。
+_SIDEBAR_MIN_WIDTH = 260
+_SIDEBAR_MAX_WIDTH = 360
+_SIDEBAR_DEFAULT_WIDTH = 272
+
 _STATE_LABELS = {
     SessionState.DISCONNECTED: "未连接",
     SessionState.CONNECTING: "正在连接",
@@ -68,7 +73,7 @@ class SessionTab(QWidget):
         self._title = ""
         self._last_error_key: tuple[object, str | None] | None = None
         self._sidebar_visible = True
-        self._sidebar_width = 300
+        self._sidebar_width = _SIDEBAR_DEFAULT_WIDTH
         self._view_mode: ViewMode = preferences.view_mode if preferences else "split"
         self._split_view_state: QByteArray | None = None
         self._build_ui(port_provider, preferences)
@@ -249,6 +254,7 @@ class SessionTab(QWidget):
         sidebar_layout.setSpacing(8)
         sidebar_layout.addWidget(self.connection_panel)
         sidebar_layout.addWidget(self.log_panel)
+        # 内容顶部对齐：多余高度留在滚动区背景，避免分组框内部出现大片空白。
         sidebar_layout.addStretch(1)
 
         self.sidebar = QScrollArea()
@@ -256,8 +262,8 @@ class SessionTab(QWidget):
         self.sidebar.setWidgetResizable(True)
         self.sidebar.setFrameShape(QFrame.Shape.NoFrame)
         self.sidebar.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.sidebar.setMinimumWidth(240)
-        self.sidebar.setMaximumWidth(460)
+        self.sidebar.setMinimumWidth(_SIDEBAR_MIN_WIDTH)
+        self.sidebar.setMaximumWidth(_SIDEBAR_MAX_WIDTH)
         self.sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
     def _build_content(self) -> None:
@@ -376,7 +382,7 @@ class SessionTab(QWidget):
     ) -> None:
         """恢复侧栏宽度、显示状态和接收/发送分隔比例。"""
         self._sidebar_visible = visible
-        self._sidebar_width = min(max(width, 240), 460)
+        self._sidebar_width = min(max(width, _SIDEBAR_MIN_WIDTH), _SIDEBAR_MAX_WIDTH)
         self.sidebar_toggle_button.setChecked(not visible)
         self.sidebar_toggle_button.setText("展开设置" if not visible else "收起设置")
         self.sidebar.setVisible(visible)
@@ -401,7 +407,7 @@ class SessionTab(QWidget):
         if self._sidebar_visible:
             sizes = self.layout_splitter.sizes()
             if sizes:
-                self._sidebar_width = min(max(sizes[0], 240), 460)
+                self._sidebar_width = min(max(sizes[0], _SIDEBAR_MIN_WIDTH), _SIDEBAR_MAX_WIDTH)
         if self._view_mode == "terminal" and self._split_view_state is not None:
             state = self._split_view_state
         else:
@@ -473,7 +479,7 @@ class SessionTab(QWidget):
         if self._sidebar_visible:
             sizes = self.layout_splitter.sizes()
             if sizes:
-                self._sidebar_width = min(max(sizes[0], 240), 460)
+                self._sidebar_width = min(max(sizes[0], _SIDEBAR_MIN_WIDTH), _SIDEBAR_MAX_WIDTH)
         self.preferences_changed.emit()
 
     def request_close(self) -> bool:

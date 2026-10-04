@@ -27,7 +27,7 @@ from qserialtool.domain import (
     encode_text,
     parse_hex,
 )
-from qserialtool.ui.theme_manager import data_font
+from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX, data_font
 
 _NEWLINES: tuple[tuple[str, LineEnding], ...] = (
     ("无换行", "none"),
@@ -88,6 +88,8 @@ class SendPanel(QWidget):
         self.send_button = QPushButton("发送")
         self.send_button.setToolTip("Ctrl+Enter")
         self.send_button.clicked.connect(self.send)
+        for widget in (self.mode_combo, self.newline_combo, self.send_button):
+            widget.setFixedHeight(CONTROL_HEIGHT_PX)
 
         header.addWidget(self.heading_label)
         header.addSpacing(12)
@@ -121,6 +123,8 @@ class SendPanel(QWidget):
         options.addWidget(QLabel("间隔"))
         options.addWidget(self.interval_spin)
         options.addWidget(self.periodic_button)
+        for widget in (self.history_combo, self.interval_spin, self.periodic_button):
+            widget.setFixedHeight(CONTROL_HEIGHT_PX)
         return row
 
     def _build_editor(self) -> QPlainTextEdit:

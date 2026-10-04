@@ -1353,17 +1353,12 @@ def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
     assert tab.send_panel.minimumSizeHint().width() <= 520
 
     window.resize(900, 600)
-    qtbot.wait(50)
     receive_panel = tab.receive_panel
-    for widget in (
-        receive_panel.pause_button,
-        receive_panel.clear_button,
-        receive_panel.wrap_check,
-        receive_panel.autoscroll_check,
-        tab.view_toggle_button,
-    ):
+    qtbot.waitUntil(lambda: bool(receive_panel._header_overflow.folded_widgets()), timeout=2000)
+    for widget in (receive_panel.pause_button, receive_panel.clear_button, tab.view_toggle_button):
         assert widget.isVisibleTo(tab)
         assert widget.geometry().right() <= receive_panel.width()
+    assert receive_panel._header_overflow.button.geometry().right() <= receive_panel.width()
     window.close()
 
 
@@ -1858,3 +1853,176 @@ def test_encoding_selection_persists_and_restores(qtbot: object) -> None:
         assert restored_tab.connection_panel.encoding_combo.currentData() == "gb18030"
     finally:
         restored.close()
+
+
+def test_sidebar_content_stays_top_aligned(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        window.resize(1180, 760)
+        qtbot.waitUntil(lambda: tab.sidebar.verticalScrollBar().maximum() == 0, timeout=2000)
+
+        layout = tab.sidebar_content.layout()
+        assert layout.itemAt(layout.count() - 1).spacerItem() is not None
+        viewport_height = tab.sidebar.viewport().height()
+        assert tab.log_panel.geometry().bottom() < viewport_height - 20
+    finally:
+        window.close()
+
+
+def test_sidebar_width_default_and_clamps(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    try:
+        assert tab.sidebar.minimumWidth() == 260
+        assert tab.sidebar.maximumWidth() == 360
+        assert tab.layout_splitter.sizes()[0] == 272
+
+        tab.apply_layout_state(visible=True, width=500, content_splitter_state=None)
+        assert tab.layout_state()[1] == 360
+
+        tab.apply_layout_state(visible=True, width=100, content_splitter_state=None)
+        assert tab.layout_state()[1] == 260
+
+        tab.layout_splitter.moveSplitter(10, 1)
+        assert tab.layout_state()[1] == 260
+
+        tab.layout_splitter.moveSplitter(900, 1)
+        assert tab.layout_state()[1] == 360
+    finally:
+        window.close()
+
+
+def test_receive_header_shows_all_controls_when_width_allows(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    receive_panel = tab.receive_panel
+    overflow = receive_panel._header_overflow
+
+    try:
+        window.resize(1180, 760)
+        qtbot.waitUntil(lambda: not overflow.folded_widgets(), timeout=2000)
+
+        assert not overflow.button.isVisibleTo(receive_panel)
+        for widget in (
+            receive_panel.mode_combo,
+            receive_panel.timestamp_check,
+            receive_panel.rx_check,
+            receive_panel.tx_check,
+            receive_panel.pause_button,
+            receive_panel.clear_button,
+            receive_panel.wrap_check,
+            receive_panel.autoscroll_check,
+            tab.view_toggle_button,
+        ):
+            assert widget.isVisibleTo(tab)
+            assert widget.width() >= widget.sizeHint().width()
+    finally:
+        window.close()
+
+
+def test_receive_header_folds_secondary_controls_when_narrow(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    receive_panel = tab.receive_panel
+    overflow = receive_panel._header_overflow
+
+    try:
+        window.resize(900, 600)
+        qtbot.waitUntil(lambda: bool(overflow.folded_widgets()), timeout=2000)
+
+        folded = overflow.folded_widgets()
+        assert receive_panel.autoscroll_check in folded
+        assert receive_panel.wrap_check in folded
+        assert receive_panel.pause_button not in folded
+        assert receive_panel.clear_button not in folded
+        assert receive_panel.mode_combo not in folded
+        assert tab.view_toggle_button not in folded
+
+        assert overflow.button.isVisibleTo(receive_panel)
+        for widget in (
+            receive_panel.mode_combo,
+            receive_panel.pause_button,
+            receive_panel.clear_button,
+            tab.view_toggle_button,
+            overflow.button,
+        ):
+            assert widget.isVisibleTo(tab)
+            assert widget.geometry().right() <= receive_panel.width()
+
+        visible_actions = [
+            action.text() for action in overflow.menu.actions() if action.isVisible()
+        ]
+        assert sorted(visible_actions) == sorted(widget.text() for widget in folded)
+    finally:
+        window.close()
+
+
+def test_receive_header_overflow_action_mirrors_checkbox_state(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    receive_panel = tab.receive_panel
+    overflow = receive_panel._header_overflow
+
+    try:
+        window.resize(900, 600)
+        qtbot.waitUntil(
+            lambda: receive_panel.autoscroll_check in overflow.folded_widgets(), timeout=2000
+        )
+        action = next(item for item in overflow.menu.actions() if item.text() == "自动滚动")
+        assert action.isVisible()
+
+        action.setChecked(False)
+        assert not receive_panel.autoscroll_check.isChecked()
+        receive_panel.autoscroll_check.setChecked(True)
+        assert action.isChecked()
+
+        window.resize(1180, 760)
+        qtbot.waitUntil(lambda: not overflow.folded_widgets(), timeout=2000)
+        assert receive_panel.autoscroll_check.isChecked()
+
+        window.resize(900, 600)
+        qtbot.waitUntil(
+            lambda: receive_panel.autoscroll_check in overflow.folded_widgets(), timeout=2000
+        )
+        texts = [item.text() for item in overflow.menu.actions()]
+        assert len(texts) == len(set(texts))
+    finally:
+        window.close()
+
+
+def test_receive_panel_empty_state_placeholder(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    receive_panel = tab.receive_panel
+
+    try:
+        assert receive_panel.output.toPlainText() == ""
+        assert receive_panel.output.placeholderText() == "暂无数据"
+
+        receive_panel.append_record(
+            LogRecord.from_bytes(
+                timestamp_utc=datetime(2026, 10, 4, tzinfo=timezone.utc),
+                direction="rx",
+                raw=b"hello",
+                encoding="utf-8",
+                session_id="empty-state",
+            )
+        )
+        assert receive_panel.output.toPlainText() != ""
+
+        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+        assert receive_panel.output.placeholderText() == ""
+
+        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+        assert receive_panel.output.placeholderText() == "暂无数据"
+    finally:
+        window.close()

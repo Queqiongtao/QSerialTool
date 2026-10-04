@@ -34,8 +34,13 @@ from qserialtool.domain import (
     Theme,
 )
 from qserialtool.ui.qt_bridge import QtSessionBridge
-from qserialtool.ui.session_tab import SessionTab
-from qserialtool.ui.theme_manager import DATA_FONT_PRESETS, apply_theme, data_font
+from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
+from qserialtool.ui.theme_manager import (
+    CONTROL_HEIGHT_PX,
+    DATA_FONT_PRESETS,
+    apply_theme,
+    data_font,
+)
 
 _THEMES: tuple[tuple[str, Theme], ...] = (
     ("跟随系统", "system"),
@@ -65,7 +70,9 @@ class MainWindow(QMainWindow):
         self._theme: Theme = initial_config.theme if initial_config is not None else "system"
         self._data_font_size = initial_config.data_font_size if initial_config is not None else 0
         self._sidebar_visible = initial_config.sidebar_visible if initial_config else True
-        self._sidebar_width = initial_config.sidebar_width if initial_config else 300
+        self._sidebar_width = (
+            initial_config.sidebar_width if initial_config else _SIDEBAR_DEFAULT_WIDTH
+        )
         self._content_splitter_state = (
             initial_config.content_splitter_state if initial_config else None
         )
@@ -155,8 +162,9 @@ class MainWindow(QMainWindow):
             combo.addItem(str(size), size)
         index = combo.findData(self._data_font_size)
         combo.setCurrentIndex(index if index >= 0 else 0)
-        combo.setFixedHeight(22)
+        combo.setFixedHeight(CONTROL_HEIGHT_PX)
         combo.setMinimumWidth(64)
+        combo.setToolTip("接收区与发送编辑器的数据字号")
         combo.currentIndexChanged.connect(self._font_size_changed)
         return combo
 
@@ -167,8 +175,9 @@ class MainWindow(QMainWindow):
             combo.addItem(label, value)
         index = combo.findData(self._theme)
         combo.setCurrentIndex(index if index >= 0 else 0)
-        combo.setFixedHeight(22)
+        combo.setFixedHeight(CONTROL_HEIGHT_PX)
         combo.setMinimumWidth(88)
+        combo.setToolTip("跟随系统 / 浅色 / 深色")
         combo.currentIndexChanged.connect(self._theme_changed)
         return combo
 

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -64,11 +65,19 @@ class LogPanel(QGroupBox):
         layout.addWidget(QLabel("格式"), 0, 1)
         layout.addWidget(self.format_combo, 0, 2)
         layout.addWidget(QLabel("目录"), 1, 0)
-        layout.addWidget(self.directory_edit, 1, 1)
-        layout.addWidget(self.browse_button, 1, 2)
-        layout.addWidget(self.export_button, 2, 0, 1, 2)
-        layout.addWidget(self.open_button, 2, 2)
-        layout.addWidget(self.status_label, 3, 0, 1, 3)
+        # 路径独占一行避免被按钮挤到截断；选择/打开等分一行，导出作为主操作独占一行。
+        layout.addWidget(self.directory_edit, 1, 1, 1, 2)
+        button_row = QHBoxLayout()
+        button_row.setSpacing(6)
+        buttons = (self.browse_button, self.open_button)
+        width = max(button.sizeHint().width() for button in buttons)
+        for button in buttons:
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.setMinimumWidth(width)
+            button_row.addWidget(button, 1)
+        layout.addLayout(button_row, 2, 0, 1, 3)
+        layout.addWidget(self.export_button, 3, 0, 1, 3)
+        layout.addWidget(self.status_label, 4, 0, 1, 3)
 
     def _connect_changes(self) -> None:
         self.enabled_check.toggled.connect(self._settings_changed)
