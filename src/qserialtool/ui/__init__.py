@@ -1,6 +1,7 @@
 """PySide6 用户界面层。"""
 
 from .connection_panel import ConnectionPanel
+from .help_window import HelpWindow
 from .log_panel import LogPanel
 from .main_window import MainWindow
 from .qt_bridge import QtSessionBridge
@@ -12,6 +13,7 @@ from .theme_manager import DataColors, apply_theme, data_colors, resolve_theme, 
 __all__ = [
     "ConnectionPanel",
     "DataColors",
+    "HelpWindow",
     "LogPanel",
     "MainWindow",
     "QtSessionBridge",

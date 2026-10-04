@@ -63,6 +63,7 @@ qserialtool = [
   "ui/assets/*.svg",
   "ui/assets/*.png",
   "ui/assets/*.ico",
+  "ui/assets/*.md",
 ]
 
 [tool.pytest.ini_options]

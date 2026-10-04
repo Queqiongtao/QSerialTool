@@ -361,6 +361,7 @@ QSerialTool/
 | `ReceivePanel` | 文本/HEX、过滤、时间戳、暂停、清屏、自动滚动 |
 | `SendPanel` | 编辑器、格式、编码、换行、历史、周期发送 |
 | `LogPanel` | 自动日志设置、打开日志目录、导出 |
+| `HelpWindow` | 内置使用手册窗口：左侧章节目录、右侧正文 |
 | `SettingsDialog` | 主题、默认配置、日志目录和版本 |
 | `ThemeManager` | 系统、浅色、深色主题 |
 

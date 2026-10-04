@@ -34,6 +34,7 @@ from qserialtool.domain import (
     Theme,
 )
 from qserialtool.ui.app_icon import app_icon
+from qserialtool.ui.help_window import HelpWindow
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
 from qserialtool.ui.theme_manager import (
@@ -77,6 +78,7 @@ class MainWindow(QMainWindow):
         self._content_splitter_state = (
             initial_config.content_splitter_state if initial_config else None
         )
+        self._help_window: HelpWindow | None = None
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
@@ -106,16 +108,23 @@ class MainWindow(QMainWindow):
 
         self._build_font_actions()
 
+        self.help_action = QAction("使用帮助", self)
+        self.help_action.setShortcut(QKeySequence("F1"))
+        self.help_action.triggered.connect(self._show_help)
+
         self.main_menu = QMenu(self)
         self.main_menu.addAction(new_action)
         self.main_menu.addAction(close_action)
         self.main_menu.addMenu(self.font_menu)
+        self.main_menu.addSeparator()
+        self.main_menu.addAction(self.help_action)
         self.main_menu.addSeparator()
         self.main_menu.addAction(exit_action)
         for action in (
             new_action,
             close_action,
             exit_action,
+            self.help_action,
             self.font_zoom_in_action,
             self.font_zoom_out_action,
             self.font_reset_action,
@@ -126,7 +135,7 @@ class MainWindow(QMainWindow):
         self.menu_button = QToolButton()
         self.menu_button.setText("☰")
         self.menu_button.setAutoRaise(True)
-        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 退出")
+        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 使用帮助 / 退出")
         self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu_button.setMenu(self.main_menu)
 
@@ -198,6 +207,14 @@ class MainWindow(QMainWindow):
         self.font_menu.addAction(self.font_zoom_in_action)
         self.font_menu.addAction(self.font_zoom_out_action)
         self.font_menu.addAction(self.font_reset_action)
+
+    def _show_help(self) -> None:
+        """打开或前置使用帮助窗口。"""
+        if self._help_window is None:
+            self._help_window = HelpWindow(self)
+        self._help_window.show()
+        self._help_window.raise_()
+        self._help_window.activateWindow()
 
     def _new_session(self, _checked: bool = False) -> None:
         """标签栏“+”按钮和“☰”菜单共用的零参数入口。
