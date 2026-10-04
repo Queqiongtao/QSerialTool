@@ -115,9 +115,12 @@ QSerialTool/
 │  ├─ ui/
 │  └─ fixtures/
 ├─ scripts/
+│  ├─ build.bat
 │  ├─ build.ps1
 │  ├─ build.sh
-│  └─ check_docs_sync.py
+│  ├─ check_commit_message.py
+│  ├─ check_docs_sync.py
+│  └─ generate_icon.py
 └─ packaging/
    └─ qserialtool.spec
 ```

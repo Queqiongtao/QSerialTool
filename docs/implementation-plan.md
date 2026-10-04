@@ -254,8 +254,12 @@ QSerialTool/
 │  ├─ ui/
 │  └─ fixtures/
 ├─ scripts/
+│  ├─ build.bat
 │  ├─ build.ps1
-│  └─ build.sh
+│  ├─ build.sh
+│  ├─ check_commit_message.py
+│  ├─ check_docs_sync.py
+│  └─ generate_icon.py
 ├─ packaging/
 │  └─ qserialtool.spec
 ├─ pyproject.toml
@@ -980,6 +984,7 @@ flowchart TB
 
 ### 18.2 Windows 构建
 
+- 入口为 `scripts/build.bat`（可双击或在终端运行），转调同目录 `build.ps1`，依次执行文档同步检查、Ruff 格式检查、Ruff 静态检查、pytest、PyInstaller 单文件构建，并生成 SHA-256 校验文件。
 - 使用独立虚拟环境。
 - 运行静态检查和自动化测试。
 - 使用 PyInstaller 单文件模式生成 `QSerialTool.exe`。
@@ -989,6 +994,7 @@ flowchart TB
 
 ### 18.3 Linux 构建
 
+- 入口为 `scripts/build.sh`，先执行 `chmod +x scripts/build.sh` 再运行；步骤与 Windows 等价：文档同步检查、Ruff 格式与静态检查、pytest、PyInstaller 单文件构建、SHA-256 校验。
 - 在 Ubuntu 22.04（glibc 2.35）构建，以覆盖声明的最低 Linux 基线。
 - 使用独立虚拟环境并生成单个 ELF 可执行文件。
 - 验证平台插件 `xcb` 所需系统库可用。

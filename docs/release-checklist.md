@@ -22,7 +22,7 @@
 
 ## Windows 验收
 
-- [x] `scripts/build.ps1` 在干净环境成功。
+- [x] `scripts/build.bat` 在干净环境成功。
 - [x] 生成 `QSerialTool.exe` 和 SHA-256。
 - [ ] 单文件在允许执行本地产物的干净 Windows 测试机启动。
 - [ ] 无缺失 Qt 插件。
