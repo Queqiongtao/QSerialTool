@@ -1,8 +1,8 @@
 @echo off
-rem One-click Windows build entry: delegates to scripts\build.ps1 (gates + PyInstaller + SHA-256).
+rem One-click Windows build entry: delegates to build.ps1 (gates + PyInstaller + SHA-256).
 setlocal
 
-set "SCRIPT=%~dp0scripts\build.ps1"
+set "SCRIPT=%~dp0build.ps1"
 if not exist "%SCRIPT%" (
   echo [build] Missing script: %SCRIPT%
   exit /b 1

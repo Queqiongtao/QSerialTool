@@ -17,7 +17,7 @@
     },
     {
       "name": "build",
-      "sources": ["packaging/**", "scripts/build.ps1", "scripts/build.sh"],
+      "sources": ["packaging/**", "scripts/build.ps1", "scripts/build.sh", "scripts/build.bat"],
       "required_any": ["docs/build-and-release.md", "docs/release-checklist.md"]
     },
     {
