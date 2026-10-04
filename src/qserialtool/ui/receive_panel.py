@@ -419,16 +419,31 @@ class ReceivePanel(QWidget):
         self.output.append_text(text, data_colors().system)
 
     def _insert_record(self, record: LogRecord) -> None:
-        self.output.append_text(self._format_record(record), self._color_for(record))
+        self.output.append_segments(self._record_segments(record))
+
+    def _record_segments(self, record: LogRecord) -> tuple[tuple[str, str, bool], ...]:
+        """拆分一行记录：时间戳弱化、方向前缀着色加粗、正文用默认文本色。"""
+        colors = data_colors()
+        if record.direction not in ("rx", "tx"):
+            return ((self._format_record(record), colors.system, False),)
+        segments: list[tuple[str, str, bool]] = []
+        if self.timestamp_check.isChecked():
+            segments.append((self._timestamp_prefix(record), colors.system, False))
+        segments.append((f"{record.direction.upper()}: ", self._color_for(record), True))
+        segments.append((self._payload_text(record), colors.text, False))
+        return tuple(segments)
+
+    def _timestamp_prefix(self, record: LogRecord) -> str:
+        local_time = record.timestamp_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return f"[{local_time}] "
+
+    def _payload_text(self, record: LogRecord) -> str:
+        return record.hex_text if self.display_mode == "hex" else record.text
 
     def _format_record(self, record: LogRecord) -> str:
-        prefix = ""
-        if self.timestamp_check.isChecked():
-            local_time = record.timestamp_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            prefix += f"[{local_time}] "
+        prefix = self._timestamp_prefix(record) if self.timestamp_check.isChecked() else ""
         prefix += f"{record.direction.upper()}: "
-        payload = record.hex_text if self.display_mode == "hex" else record.text
-        return prefix + payload
+        return prefix + self._payload_text(record)
 
     def _should_show(self, record: LogRecord) -> bool:
         if record.direction == "rx":

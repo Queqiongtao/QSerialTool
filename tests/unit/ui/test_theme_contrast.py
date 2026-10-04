@@ -12,7 +12,7 @@ from qserialtool.ui import apply_theme, data_colors, resolved_theme
 from qserialtool.ui.style_sheet import assets_dir, build_stylesheet, tokens
 from qserialtool.ui.theme_manager import ansi_color, highlight_colors
 
-_DATA_COLOR_FIELDS = ("rx", "tx", "system", "connected", "error", "pending", "idle")
+_DATA_COLOR_FIELDS = ("text", "rx", "tx", "system", "connected", "error", "pending", "idle")
 
 
 def _channel(value: int) -> float:
@@ -60,6 +60,12 @@ def test_placeholder_text_meets_contrast_targets(app: QApplication, theme_name: 
     apply_theme(app, theme_name)
     placeholder = app.palette().color(QPalette.ColorRole.PlaceholderText).name()
     assert _contrast(placeholder, _base_color(app)) >= 4.5
+
+
+def test_light_muted_text_meets_contrast_on_window() -> None:
+    """未选中标签等 muted 文字在窗口灰底上同样要满足 AA 对比度。"""
+    colors = tokens("light")
+    assert _contrast(colors.muted, colors.window) >= 4.5
 
 
 def test_dark_disabled_text_is_dimmer_than_enabled(app: QApplication) -> None:

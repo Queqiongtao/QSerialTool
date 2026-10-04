@@ -1,6 +1,6 @@
 """终端视图控件：渲染终端网格并提供光标处的内联输入。"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import (
@@ -126,11 +126,21 @@ class TerminalOutput(QPlainTextEdit):
         self._cursor_block_number = 0
 
     def append_text(self, text: str, color: str) -> None:
-        """按日志格式追加一行文本，供分栏视图使用。"""
+        """按单色追加一行文本，供提示行等简单调用方使用。"""
+        self.append_segments(((text, color, False),))
+
+    def append_segments(self, segments: Sequence[tuple[str, str, bool]]) -> None:
+        """按 (文本, 颜色, 是否加粗) 片段追加一行，行尾用默认文本色换行。"""
         cursor = QTextCursor(self.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.setCharFormat(self._format_for(color))
-        cursor.insertText(text + "\n")
+        for text, color, bold in segments:
+            if not text:
+                continue
+            cursor.setCharFormat(self._format_for(color, bold))
+            cursor.insertText(text)
+        default_color = self.palette().color(QPalette.ColorRole.Text).name()
+        cursor.setCharFormat(self._format_for(default_color))
+        cursor.insertText("\n")
         if not self._batch_update:
             self._scroll_after_update()
 
@@ -223,9 +233,11 @@ class TerminalOutput(QPlainTextEdit):
             cursor.setCharFormat(self._format_for_style(TerminalStyle()))
             cursor.insertText(" " * (end - len(row)))
 
-    def _format_for(self, color: str) -> QTextCharFormat:
+    def _format_for(self, color: str, bold: bool = False) -> QTextCharFormat:
         text_format = QTextCharFormat()
         text_format.setForeground(QColor(color))
+        if bold:
+            text_format.setFontWeight(QFont.Weight.Bold)
         return text_format
 
     def _highlight_overrides(self, row: tuple[TerminalCell, ...]) -> dict[int, str]:

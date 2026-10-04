@@ -705,6 +705,28 @@ def _fragment_formats(output: TerminalOutput) -> list[tuple[str, str]]:
     return formats
 
 
+def _fragment_styles(output: TerminalOutput) -> list[tuple[str, str, bool]]:
+    """按顺序返回文档片段的 (文本, 前景色, 是否加粗)，用于断言分层配色。"""
+    styles: list[tuple[str, str, bool]] = []
+    block = output.document().firstBlock()
+    while block.isValid():
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment is not None and fragment.text():
+                char_format = fragment.charFormat()
+                styles.append(
+                    (
+                        fragment.text(),
+                        char_format.foreground().color().name(),
+                        char_format.fontWeight() >= QFont.Weight.Bold,
+                    )
+                )
+            iterator += 1
+        block = block.next()
+    return styles
+
+
 def test_terminal_highlights_addresses_and_links_but_keeps_ansi_colors(
     qtbot: object,
 ) -> None:
@@ -1639,6 +1661,62 @@ def test_receive_panel_renders_only_recent_records(qtbot: object) -> None:
     assert "已隐藏较早的 1000 条记录" in text
     assert "line 1000" in text
     assert "line 999" not in text
+
+
+def _color_record(direction: str, text: str, timestamp: datetime) -> LogRecord:
+    return LogRecord.from_bytes(
+        timestamp_utc=timestamp,
+        direction=direction,  # type: ignore[arg-type]
+        raw=text.encode(),
+        encoding="utf-8",
+        session_id="colors",
+    )
+
+
+def test_receive_panel_layers_timestamp_direction_and_payload_colors(qtbot: object) -> None:
+    timestamp = datetime(2026, 10, 2, 12, 0, 0, tzinfo=timezone.utc)
+    records = (
+        _color_record("rx", "hello", timestamp),
+        _color_record("tx", "world", timestamp),
+        _color_record("system", "note", timestamp),
+    )
+    panel = ReceivePanel(records_provider=lambda: records, clear_callback=lambda: 0)
+    qtbot.addWidget(panel)
+    panel.output.clear_content()
+    panel.render_records()
+
+    colors = data_colors()
+    local = timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    stamp = f"[{local}] "
+
+    # 时间戳灰色、方向前缀着色加粗、正文默认文本色；SYSTEM 行整行灰色。
+    assert _fragment_styles(panel.output) == [
+        (stamp, colors.system, False),
+        ("RX: ", colors.rx, True),
+        ("hello", colors.text, False),
+        (stamp, colors.system, False),
+        ("TX: ", colors.tx, True),
+        ("world", colors.text, False),
+        (f"{stamp}SYSTEM: note", colors.system, False),
+    ]
+
+
+def test_receive_panel_hex_mode_keeps_payload_colors_without_timestamp(qtbot: object) -> None:
+    timestamp = datetime(2026, 10, 2, 12, 0, 0, tzinfo=timezone.utc)
+    records = (_color_record("rx", "AB", timestamp),)
+    panel = ReceivePanel(records_provider=lambda: records, clear_callback=lambda: 0)
+    qtbot.addWidget(panel)
+    panel.mode_combo.setCurrentIndex(1)
+    panel.timestamp_check.setChecked(False)
+    panel.output.clear_content()
+    panel.render_records()
+
+    colors = data_colors()
+
+    assert _fragment_styles(panel.output) == [
+        ("RX: ", colors.rx, True),
+        ("41 42", colors.text, False),
+    ]
 
 
 def test_tab_double_click_renames_session(qtbot: object, monkeypatch: object) -> None:

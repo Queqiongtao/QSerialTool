@@ -38,6 +38,7 @@ def _palette_roles(colors: ThemeTokens) -> tuple[tuple[QPalette.ColorRole, str],
 class DataColors:
     """当前主题下数据区与状态指示使用的颜色。"""
 
+    text: str
     rx: str
     tx: str
     system: str
@@ -49,6 +50,7 @@ class DataColors:
 
 _THEME_COLORS: dict[str, DataColors] = {
     "light": DataColors(
+        text="#1f2328",
         rx="#14713d",
         tx="#1f5fa8",
         system="#666666",
@@ -58,6 +60,7 @@ _THEME_COLORS: dict[str, DataColors] = {
         idle="#666666",
     ),
     "dark": DataColors(
+        text="#e6e8eb",
         rx="#5cc98c",
         tx="#6fb3f2",
         system="#a3a9b0",
