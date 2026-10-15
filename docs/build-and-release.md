@@ -4,7 +4,7 @@
 
 - Windows 10/11 x64。
 - Ubuntu 22.04 x64 或兼容的 Linux x64 环境。
-- Python 3.10.x。
+- Python 3.10.x–3.13.x。
 - 已按 README 创建 `.venv` 并安装 `[dev,build]` 依赖。
 
 Windows 和 Linux 必须在对应操作系统上分别构建，不能交叉生成单文件程序。

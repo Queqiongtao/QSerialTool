@@ -249,7 +249,7 @@ git config core.hooksPath .githooks
 
 `scripts/check_commit_message.py` 校验提交信息是否使用 Conventional Commits 类型前缀并包含简体中文标题与正文，合并与回滚自动提交会被跳过。该检查是启发式门禁，只验证中文字符存在，语义质量仍由人工审查保证。
 
-GitHub Actions 在 push 和 pull request 上执行同一文档同步与提交信息检查、Ruff 和离屏 pytest。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
+GitHub Actions 在 push 和 pull request 上以 Python 3.10–3.13 矩阵执行同一文档同步与提交信息检查、Ruff 和离屏 pytest。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
 
 ## 11. 扩展清单
 

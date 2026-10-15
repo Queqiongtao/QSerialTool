@@ -20,7 +20,7 @@ QSerialTool 是一个面向开发者与测试人员的跨平台串口调试助�
 当前仍需在允许执行本地产物的 Windows 环境和 Ubuntu 22.04 上完成单文件启动、真实串口和长时间稳定性验收。
 ## 环境要求
 
-- Python 3.10.x
+- Python 3.10.x–3.13.x
 - Windows 10/11 x64 或 Ubuntu 22.04 及以上 Linux x64
 - Git
 
