@@ -22,6 +22,9 @@ DEFAULT_READ_CHUNK_SIZE = 8192
 DEFAULT_WRITE_QUEUE_SIZE = 256
 DEFAULT_CLOSE_TIMEOUT = 1.0
 
+# 单次 transport.write_all 的等待上限，避免异常设备把工作线程挂死。
+_WRITE_TIMEOUT_SECONDS = 1.0
+
 logger = logging.getLogger(__name__)
 
 
@@ -171,7 +174,7 @@ class SerialWorker:
             while not self._stop_requested.is_set():
                 if not self._process_control_commands(transport):
                     break
-                self._process_one_write(transport)
+                self._process_writes(transport)
                 if not transport.is_open:
                     self._event_handler.on_io_error(TransportIOError("串口已关闭。"))
                     break
@@ -198,22 +201,26 @@ class SerialWorker:
                 self._event_handler.on_io_error(InternalError(f"设置线路状态失败：{exc}"))
                 return False
 
-    def _process_one_write(self, transport: Transport) -> None:
-        try:
-            command = self._write_queue.get_nowait()
-        except Empty:
-            return
-        try:
-            transport.write_all(command.data, timeout=1.0)
-        except DomainError as exc:
-            self._event_handler.on_io_error(exc)
-            self._stop_requested.set()
-            return
-        except Exception as exc:
-            self._event_handler.on_io_error(InternalError(f"写入串口时发生未预期错误：{exc}"))
-            self._stop_requested.set()
-            return
-        self._event_handler.on_bytes_sent(command.data)
+    def _process_writes(self, transport: Transport) -> None:
+        """在一个 I/O 轮次内清空发送队列；失败或收到停止请求即结束本批写出。"""
+        while not self._stop_requested.is_set():
+            try:
+                command = self._write_queue.get_nowait()
+            except Empty:
+                return
+            try:
+                transport.write_all(command.data, timeout=_WRITE_TIMEOUT_SECONDS)
+            except DomainError as exc:
+                self._event_handler.on_io_error(exc)
+                self._stop_requested.set()
+                return
+            except Exception as exc:
+                self._event_handler.on_io_error(InternalError(f"写入串口时发生未预期错误：{exc}"))
+                self._stop_requested.set()
+                return
+            self._event_handler.on_bytes_sent(command.data)
+            if not transport.is_open:
+                return
 
     def _read_once(self, transport: Transport) -> None:
         try:

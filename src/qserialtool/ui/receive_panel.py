@@ -30,6 +30,9 @@ _DOCUMENT_BLOCK_LIMIT = _MAX_RENDERED_RECORDS + 3
 # 高频数据流的渲染合并窗口：空闲后的第一条立即显示，其余在同一窗口内合并成一帧。
 _FLUSH_INTERVAL_MS = 30
 
+# 分栏空态的占位提示；终端模式下光标会盖住提示，切回分栏时恢复。
+_EMPTY_PLACEHOLDER = "暂无数据"
+
 # “接收”标题与格式下拉框之间的固定间隔，参与标题行溢出宽度估算。
 _HEADING_GAP = 12
 
@@ -225,7 +228,7 @@ class ReceivePanel(QWidget):
         self._assemble_header_row(header, heading)
 
         self.output = TerminalOutput()
-        self.output.setPlaceholderText("暂无数据")
+        self.output.setPlaceholderText(_EMPTY_PLACEHOLDER)
         self.output.setFont(data_font())
         self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.output.document().setMaximumBlockCount(_DOCUMENT_BLOCK_LIMIT)
@@ -293,7 +296,7 @@ class ReceivePanel(QWidget):
         self._header_overflow.set_mode_visible(self.highlight_check, enabled)
         self.mode_combo.setVisible(not enabled)
         # 终端视图的块状光标会盖住空态文字，切回分栏时再恢复提示。
-        self.output.setPlaceholderText("" if enabled else "暂无数据")
+        self.output.setPlaceholderText("" if enabled else _EMPTY_PLACEHOLDER)
         if not enabled:
             self._screen = None
         self.output.set_terminal_mode(enabled)

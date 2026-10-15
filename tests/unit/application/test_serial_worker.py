@@ -1,5 +1,8 @@
 """测试串口 Worker 的命令队列和异常路径。"""
 
+from collections.abc import Callable
+from threading import Event
+from time import monotonic, sleep
 from typing import cast
 
 import pytest
@@ -21,6 +24,36 @@ class _ExplodingHandler(RecordingWorkerHandler):
 
     def on_bytes_received(self, data: bytes) -> None:
         raise RuntimeError("callback failed")
+
+
+class _GatedTransport(FakeTransport):
+    """首次写入先卡住，便于验证突发发送在同一 I/O 轮次内批量写出。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.trace: list[str] = []
+        self.first_write_started = Event()
+        self.release_first_write = Event()
+
+    def write_all(self, data: bytes, timeout: float) -> None:
+        self.trace.append("write")
+        if not self.first_write_started.is_set():
+            self.first_write_started.set()
+            self.release_first_write.wait(2.0)
+        super().write_all(data, timeout=timeout)
+
+    def read(self, max_bytes: int, timeout: float) -> bytes:
+        self.trace.append("read")
+        return super().read(max_bytes, timeout=timeout)
+
+
+def _wait_for(predicate: Callable[[], bool], timeout: float = 2.0) -> bool:
+    deadline = monotonic() + timeout
+    while monotonic() < deadline:
+        if predicate():
+            return True
+        sleep(0.005)
+    return predicate()
 
 
 def _worker(
@@ -286,3 +319,65 @@ def test_worker_reports_close_failures(error: BaseException) -> None:
     assert handler.io_error_event.wait(1.0)
     assert handler.stopped_event.wait(1.0)
     assert worker.join(1.0)
+
+
+def test_worker_drains_queued_writes_in_one_cycle() -> None:
+    transport = _GatedTransport()
+    worker, handler = _worker(transport)
+    worker.start()
+    assert handler.opened_event.wait(1.0)
+
+    payloads = [f"burst-{index}".encode() for index in range(32)]
+    worker.send(payloads[0])
+    assert transport.first_write_started.wait(1.0)
+    for payload in payloads[1:]:
+        worker.send(payload)
+    transport.release_first_write.set()
+
+    assert _wait_for(lambda: len(handler.sent) == len(payloads))
+    worker.request_stop()
+    assert worker.join(1.0)
+
+    assert transport.writes == payloads
+    assert handler.sent == payloads
+    # 首条写入之后再无读取插入，说明整批在同一个 I/O 轮次里连续写出。
+    start = transport.trace.index("write")
+    assert transport.trace[start : start + len(payloads)] == ["write"] * len(payloads)
+
+
+def test_worker_stop_interrupts_queued_writes() -> None:
+    transport = _GatedTransport()
+    worker, handler = _worker(transport)
+    worker.start()
+    assert handler.opened_event.wait(1.0)
+
+    worker.send(b"first")
+    assert transport.first_write_started.wait(1.0)
+    for payload in (b"second", b"third"):
+        worker.send(payload)
+    worker.request_stop()
+    transport.release_first_write.set()
+
+    assert handler.stopped_event.wait(2.0)
+    assert worker.join(2.0)
+    assert transport.writes == [b"first"]
+
+
+def test_worker_stops_burst_at_first_failed_write() -> None:
+    transport = FakeTransport(
+        write_error=TransportIOError("write failed"),
+        write_error_after=1,
+    )
+    worker, handler = _worker(transport)
+    worker.start()
+    assert handler.opened_event.wait(1.0)
+
+    for payload in (b"one", b"two", b"three"):
+        worker.send(payload)
+
+    assert handler.io_error_event.wait(1.0)
+    assert handler.stopped_event.wait(1.0)
+    assert worker.join(1.0)
+    assert transport.writes == [b"one"]
+    assert handler.sent == [b"one"]
+    assert isinstance(handler.io_errors[0], TransportIOError)

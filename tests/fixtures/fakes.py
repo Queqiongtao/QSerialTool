@@ -40,6 +40,7 @@ class FakeTransport:
         open_error: BaseException | None = None,
         read_error: BaseException | None = None,
         write_error: BaseException | None = None,
+        write_error_after: int | None = None,
         line_error: BaseException | None = None,
         reads: list[bytes] | None = None,
         close_on_read: bool = False,
@@ -48,6 +49,7 @@ class FakeTransport:
         self.open_error = open_error
         self.read_error = read_error
         self.write_error = write_error
+        self.write_error_after = write_error_after
         self.line_error = line_error
         self.close_on_read = close_on_read
         self.close_error = close_error
@@ -107,7 +109,9 @@ class FakeTransport:
         return data[:max_bytes]
 
     def write_all(self, data: bytes, timeout: float) -> None:
-        if self.write_error is not None:
+        if self.write_error is not None and (
+            self.write_error_after is None or len(self.writes) >= self.write_error_after
+        ):
             raise self.write_error
         with self._lock:
             if not self._is_open:

@@ -26,6 +26,7 @@ from qserialtool.domain import (
     SessionState,
     ValidationError,
 )
+from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX
 
 _BAUDRATES = ("9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600")
 _PARITIES = (("无", "N"), ("偶校验", "E"), ("奇校验", "O"), ("标记", "M"), ("空格", "S"))
@@ -106,7 +107,7 @@ class ConnectionPanel(QGroupBox):
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         )
         self.refresh_button.setToolTip("刷新端口列表")
-        self.refresh_button.setFixedSize(24, 24)
+        self.refresh_button.setFixedSize(CONTROL_HEIGHT_PX, CONTROL_HEIGHT_PX)
         self.refresh_button.clicked.connect(self._refresh_ports)
         self.baud_combo = QComboBox()
         self.baud_combo.setEditable(True)
