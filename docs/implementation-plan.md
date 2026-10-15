@@ -362,7 +362,7 @@ QSerialTool/
 | `SendPanel` | 编辑器、格式、编码、换行、历史、周期发送 |
 | `LogPanel` | 自动日志设置、打开日志目录、导出 |
 | `HelpWindow` | 内置使用手册窗口：左侧章节目录、右侧正文 |
-| `AboutDialog` | 关于对话框：版本、作者和 GitHub 仓库链接 |
+| `AboutDialog` | 关于对话框：版本、作者、仓库与第三方声明链接、运行环境和许可证信息 |
 | `SettingsDialog` | 主题、默认配置、日志目录和版本 |
 | `ThemeManager` | 系统、浅色、深色主题 |
 
