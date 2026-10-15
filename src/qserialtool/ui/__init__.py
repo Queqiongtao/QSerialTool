@@ -1,5 +1,6 @@
 """PySide6 用户界面层。"""
 
+from .about_dialog import AboutDialog
 from .connection_panel import ConnectionPanel
 from .help_window import HelpWindow
 from .log_panel import LogPanel
@@ -11,6 +12,7 @@ from .session_tab import SessionTab
 from .theme_manager import DataColors, apply_theme, data_colors, resolve_theme, resolved_theme
 
 __all__ = [
+    "AboutDialog",
     "ConnectionPanel",
     "DataColors",
     "HelpWindow",

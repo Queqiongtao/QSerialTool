@@ -62,6 +62,14 @@ def test_placeholder_text_meets_contrast_targets(app: QApplication, theme_name: 
     assert _contrast(placeholder, _base_color(app)) >= 4.5
 
 
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_link_color_meets_contrast_targets(app: QApplication, theme_name: str) -> None:
+    """关于对话框等处的超链接画在窗口底色上，两个主题都要满足 AA 对比度。"""
+    apply_theme(app, theme_name)
+    link = app.palette().color(QPalette.ColorRole.Link).name()
+    assert _contrast(link, tokens(theme_name).window) >= 4.5
+
+
 def test_light_muted_text_meets_contrast_on_window() -> None:
     """未选中标签等 muted 文字在窗口灰底上同样要满足 AA 对比度。"""
     colors = tokens("light")

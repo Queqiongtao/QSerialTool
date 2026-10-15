@@ -29,6 +29,8 @@ def _palette_roles(colors: ThemeTokens) -> tuple[tuple[QPalette.ColorRole, str],
         (QPalette.ColorRole.ButtonText, colors.text),
         (QPalette.ColorRole.Highlight, colors.accent_fill),
         (QPalette.ColorRole.HighlightedText, "#FFFFFF"),
+        # 超链接统一使用主题强调色，保证深色主题下也满足对比度要求。
+        (QPalette.ColorRole.Link, colors.accent),
         (QPalette.ColorRole.ToolTipBase, colors.surface),
         (QPalette.ColorRole.ToolTipText, colors.text),
     )

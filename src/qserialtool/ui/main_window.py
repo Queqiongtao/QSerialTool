@@ -33,6 +33,7 @@ from qserialtool.domain import (
     SessionState,
     Theme,
 )
+from qserialtool.ui.about_dialog import AboutDialog
 from qserialtool.ui.app_icon import app_icon
 from qserialtool.ui.help_window import HelpWindow
 from qserialtool.ui.qt_bridge import QtSessionBridge
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
             initial_config.content_splitter_state if initial_config else None
         )
         self._help_window: HelpWindow | None = None
+        self._about_dialog: AboutDialog | None = None
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
@@ -107,10 +109,7 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
 
         self._build_font_actions()
-
-        self.help_action = QAction("使用帮助", self)
-        self.help_action.setShortcut(QKeySequence("F1"))
-        self.help_action.triggered.connect(self._show_help)
+        self._build_help_actions()
 
         self.main_menu = QMenu(self)
         self.main_menu.addAction(new_action)
@@ -118,6 +117,7 @@ class MainWindow(QMainWindow):
         self.main_menu.addMenu(self.font_menu)
         self.main_menu.addSeparator()
         self.main_menu.addAction(self.help_action)
+        self.main_menu.addAction(self.about_action)
         self.main_menu.addSeparator()
         self.main_menu.addAction(exit_action)
         for action in (
@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
         self.menu_button = QToolButton()
         self.menu_button.setText("☰")
         self.menu_button.setAutoRaise(True)
-        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 使用帮助 / 退出")
+        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 使用帮助 / 关于 / 退出")
         self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu_button.setMenu(self.main_menu)
 
@@ -208,6 +208,14 @@ class MainWindow(QMainWindow):
         self.font_menu.addAction(self.font_zoom_out_action)
         self.font_menu.addAction(self.font_reset_action)
 
+    def _build_help_actions(self) -> None:
+        """构造“使用帮助”和“关于 QSerialTool”动作。"""
+        self.help_action = QAction("使用帮助", self)
+        self.help_action.setShortcut(QKeySequence("F1"))
+        self.help_action.triggered.connect(self._show_help)
+        self.about_action = QAction("关于 QSerialTool", self)
+        self.about_action.triggered.connect(self._show_about)
+
     def _show_help(self) -> None:
         """打开或前置使用帮助窗口。"""
         if self._help_window is None:
@@ -215,6 +223,14 @@ class MainWindow(QMainWindow):
         self._help_window.show()
         self._help_window.raise_()
         self._help_window.activateWindow()
+
+    def _show_about(self) -> None:
+        """打开或前置关于对话框。"""
+        if self._about_dialog is None:
+            self._about_dialog = AboutDialog(self)
+        self._about_dialog.show()
+        self._about_dialog.raise_()
+        self._about_dialog.activateWindow()
 
     def _new_session(self, _checked: bool = False) -> None:
         """标签栏“+”按钮和“☰”菜单共用的零参数入口。
