@@ -155,23 +155,23 @@ def test_json_config_defaults_wrap_enabled_for_legacy_files(tmp_path: Path) -> N
 
 
 def test_csv_log_sink_writes_expected_fields(tmp_path: Path) -> None:
+    record = _record()
     path = tmp_path / "data.csv"
     sink = CsvLogSink()
     sink.open(path)
-    sink.write(_record())
+    sink.write(record)
     sink.close()
 
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
-    assert rows == [
-        {
-            "timestamp": "2026-10-01T20:00:00.123+08:00",
-            "direction": "RX",
-            "encoding": "utf-8",
-            "text": "hello,world",
-            "hex": "68 65 6C 6C 6F 2C 77 6F 72 6C 64",
-        }
-    ]
+    assert len(rows) == 1
+    row = rows[0]
+    # 时间戳按运行环境本地时区写入，断言必须与机器时区无关：与 UTC 时刻往返一致。
+    assert datetime.fromisoformat(row["timestamp"]) == record.timestamp_utc
+    assert row["direction"] == "RX"
+    assert row["encoding"] == "utf-8"
+    assert row["text"] == "hello,world"
+    assert row["hex"] == "68 65 6C 6C 6F 2C 77 6F 72 6C 64"
 
 
 def test_txt_log_sink_writes_readable_line(tmp_path: Path) -> None:

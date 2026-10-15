@@ -189,11 +189,17 @@ class LogPanel(QGroupBox):
         selected, _ = QFileDialog.getSaveFileName(
             self,
             "导出当前缓冲",
-            str(Path(self.directory_edit.text()).with_suffix(f".{extension}")),
+            str(self._default_export_path(extension)),
             f"{extension.upper()} 文件 (*.{extension})",
         )
         if selected:
             self.export_to(Path(selected), log_format)
+
+    def _default_export_path(self, extension: str) -> Path:
+        """返回导出对话框的默认路径；目录为空时回落到默认日志目录。"""
+        directory = self.directory_edit.text().strip()
+        base = Path(directory) if directory else default_log_directory()
+        return base / f"QSerialTool_export.{extension}"
 
     def export_to(self, path: Path, log_format: LogFormat) -> None:
         """导出到明确路径，便于测试与后续自动化。"""

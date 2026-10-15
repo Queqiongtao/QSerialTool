@@ -53,6 +53,33 @@ def _format_invalid_bytes(data: bytes) -> str:
     return "".join(f"<{value:02X}>" for value in data)
 
 
+def _decode_pending(pending: bytearray, encoding: str, *, final: bool) -> str:
+    """尽可能解码 ``pending`` 的完整前缀；未完成的多字节序列保留在缓冲区中。"""
+    parts: list[str] = []
+    while pending:
+        raw = bytes(pending)
+        try:
+            parts.append(raw.decode(encoding, errors="strict"))
+        except UnicodeDecodeError as exc:
+            if exc.start:
+                parts.append(raw[: exc.start].decode(encoding, errors="strict"))
+                del pending[: exc.start]
+                continue
+            if not final and exc.end >= len(raw):
+                break
+            invalid_end = exc.end if exc.end > exc.start else exc.start + 1
+            parts.append(_format_invalid_bytes(raw[exc.start : invalid_end]))
+            del pending[:invalid_end]
+            continue
+        pending.clear()
+        break
+
+    if final and pending:
+        parts.append(_format_invalid_bytes(bytes(pending)))
+        pending.clear()
+    return "".join(parts)
+
+
 class IncrementalTextDecoder:
     """在未知读取边界下保持字节序列状态。"""
 
@@ -67,32 +94,7 @@ class IncrementalTextDecoder:
         if type(final) is not bool:
             raise TextEncodingError("final 参数必须是布尔值。")
         self._pending.extend(data)
-        return self._decode_pending(final=final)
-
-    def _decode_pending(self, *, final: bool) -> str:
-        parts: list[str] = []
-        while self._pending:
-            raw = bytes(self._pending)
-            try:
-                parts.append(raw.decode(self.encoding, errors="strict"))
-            except UnicodeDecodeError as exc:
-                if exc.start:
-                    parts.append(raw[: exc.start].decode(self.encoding, errors="strict"))
-                    del self._pending[: exc.start]
-                    continue
-                if not final and exc.end >= len(raw):
-                    break
-                invalid_end = exc.end if exc.end > exc.start else exc.start + 1
-                parts.append(_format_invalid_bytes(raw[exc.start : invalid_end]))
-                del self._pending[:invalid_end]
-                continue
-            self._pending.clear()
-            break
-
-        if final and self._pending:
-            parts.append(_format_invalid_bytes(bytes(self._pending)))
-            self._pending.clear()
-        return "".join(parts)
+        return _decode_pending(self._pending, self.encoding, final=final)
 
     def reset(self) -> None:
         """清空所有尚未完成的解码状态。"""
@@ -103,6 +105,20 @@ def decode_text(data: bytes, encoding: EncodingName) -> str:
     """完整解码一段字节，并为非法字节生成 HEX 占位。"""
     decoder = IncrementalTextDecoder(encoding)
     return decoder.decode(data, final=True)
+
+
+def decode_partial(data: bytes, encoding: EncodingName) -> tuple[str, bytes]:
+    """解码数据块中完整的前缀字符，返回 ``(文本, 未完成的尾字节)``。
+
+    与 ``IncrementalTextDecoder`` 不同，本函数不保留跨块状态：无法构成完整
+    字符的尾字节原样返回，由调用方在下一个数据块前拼接回来；非法字节按
+    ``decode_text`` 的约定转为 ``<XX>`` 占位。
+    """
+    if not isinstance(data, bytes):
+        raise TextEncodingError("文本解码输入必须是 bytes。")
+    pending = bytearray(data)
+    text = _decode_pending(pending, _validate_encoding(encoding), final=False)
+    return text, bytes(pending)
 
 
 def encode_text(text: str, encoding: EncodingName) -> bytes:

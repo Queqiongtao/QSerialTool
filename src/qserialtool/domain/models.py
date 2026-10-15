@@ -101,7 +101,11 @@ class SerialConfig:
 
 @dataclass(frozen=True, slots=True)
 class LogRecord:
-    """一条不可变的串口数据或系统事件记录。"""
+    """一条不可变的串口数据或系统事件记录。
+
+    ``hex_text`` 必须由 ``raw`` 派生；``text`` 通常也是，但跨块解码时它可能
+    包含由上一块未完成字节补全的字符，因此不再逐条重算校验。
+    """
 
     timestamp_utc: datetime
     direction: LogDirection
@@ -121,13 +125,12 @@ class LogRecord:
         if self.encoding not in SUPPORTED_ENCODINGS:
             raise ValidationError("日志编码不受支持。")
         _require_string(self.session_id, "会话 ID")
+        _require_string(self.text, "日志文本", allow_empty=True)
         if self.hex_text != format_hex(self.raw):
             raise ValidationError("HEX 文本必须由原始字节派生。")
-        if self.text != decode_text(self.raw, self.encoding):
-            raise ValidationError("文本必须由原始字节和编码派生。")
 
     @classmethod
-    def from_bytes(
+    def from_bytes(  # noqa: PLR0913
         cls,
         *,
         timestamp_utc: datetime,
@@ -135,14 +138,15 @@ class LogRecord:
         raw: bytes,
         encoding: EncodingName,
         session_id: str,
+        text: str | None = None,
     ) -> "LogRecord":
-        """从原始字节创建记录，并生成派生的文本与 HEX。"""
+        """从原始字节创建记录；省略 ``text`` 时按编码完整解码。"""
         return cls(
             timestamp_utc=timestamp_utc,
             direction=direction,
             raw=raw,
             encoding=encoding,
-            text=decode_text(raw, encoding),
+            text=decode_text(raw, encoding) if text is None else text,
             hex_text=format_hex(raw),
             session_id=session_id,
         )

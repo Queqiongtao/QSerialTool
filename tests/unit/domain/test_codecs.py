@@ -12,6 +12,7 @@ from qserialtool.domain import (
     TextEncodingError,
     ValidationError,
     append_line_ending,
+    decode_partial,
     decode_text,
     encode_text,
     format_hex,
@@ -115,6 +116,30 @@ def test_incremental_decoder_rejects_invalid_types() -> None:
         decoder.decode(cast(bytes, "text"))
     with pytest.raises(TextEncodingError):
         decoder.decode(b"", final=cast(bool, 1))
+
+
+def test_decode_partial_returns_incomplete_tail_bytes() -> None:
+    data = "串口".encode()
+
+    text, tail = decode_partial(data[:2], "utf-8")
+    assert (text, tail) == ("", data[:2])
+
+    text, tail = decode_partial(tail + data[2:], "utf-8")
+    assert (text, tail) == ("串口", b"")
+
+
+def test_decode_partial_marks_invalid_bytes_and_keeps_tail() -> None:
+    assert decode_partial(b"", "utf-8") == ("", b"")
+
+    text, tail = decode_partial(b"A\xff\xe4", "utf-8")
+    assert (text, tail) == ("A<FF>", b"\xe4")
+
+
+def test_decode_partial_rejects_invalid_input() -> None:
+    with pytest.raises(TextEncodingError):
+        decode_partial(cast(bytes, "text"), "utf-8")
+    with pytest.raises(ValidationError):
+        decode_partial(b"", cast(EncodingName, "utf-16"))
 
 
 def test_encode_text_rejects_ascii_with_chinese() -> None:

@@ -58,7 +58,8 @@ bootstrap -> ui -> application -> domain
 ### 3.2 记录与快照
 
 - `LogRecord` 保存 UTC 时间、方向、原始 `bytes`、文本编码、文本、HEX 和会话 ID。
-- `LogRecord.from_bytes()` 是创建串口记录的标准入口，文本和 HEX 必须从原始字节派生。
+- `LogRecord.from_bytes()` 是创建串口记录的标准入口：HEX 必须由原始字节派生；`text` 省略时按编码完整解码，接收路径则传入 `decode_partial()` 跨块补全后的文本。
+- `decode_partial(data, encoding)` 解码数据块中完整的前缀字符，返回 `(文本, 未完成的尾字节)`，不保留跨块状态；`IncrementalTextDecoder` 面向有状态的流式解码，两者共享同一套解码循环和 `<XX>` 占位规则。
 - `SessionSnapshot` 保存会话 ID、标题、状态、配置、最后错误、RX/TX 字节数和累计淘汰记录数。
 - 回调跨线程传递时只使用不可变 `LogRecord` 和 `SessionSnapshot`。
 - `SessionPreferences.view_mode` 保存每个标签的 `split`/`terminal` 视图模式，默认 `split`；旧配置缺少该字段时按 `split` 迁移。
@@ -135,10 +136,11 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 ### 6.2 接收
 
 1. Worker 循环读取最多 `8192` 字节，单次超时 `50 ms`。
-2. `on_bytes_received()` 创建方向为 `rx` 的 `LogRecord`。
-3. controller 同时写入有界内存缓冲和活动日志。
-4. 记录通过回调发布，`QtSessionBridge` 将事件投递到 UI。
-5. 接收面板根据暂停、RX/TX 过滤和文本/HEX 模式决定是否显示。
+2. `on_bytes_received()` 用 `decode_partial()` 把上一块的残留尾字节与本次数据拼接后解码：完整字符立即成记录，未成形的尾字节保留到下一块，多字节字符不会因读取边界被拆散。
+3. 断开、强制关闭或 Worker 停止时，残留尾字节按 `<XX>` 占位补一条接收记录，字节不会静默消失。
+4. controller 同时写入有界内存缓冲和活动日志。
+5. 记录通过回调发布，`QtSessionBridge` 将事件投递到 UI。
+6. 接收面板根据暂停、RX/TX 过滤和文本/HEX 模式决定是否显示。
 
 ### 6.3 发送
 
@@ -197,7 +199,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `SendPanel`：分栏视图使用两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体，标题行下拉框与按钮统一为 `CONTROL_HEIGHT_PX`。终端视图不再使用独立发送控件，`send_content()` 负责发送内联终端提交的单行文本；构造出的 payload 为空时直接视为成功无操作，不调用 controller。
 - `TerminalOutput`：按 `TerminalScreen` 快照重建网格，把连续同样式单元格合并成运行段写入文档，块状光标用 `paintEvent` 叠加绘制；内联草稿渲染在模型光标处，支持回车提交、上下键历史、多行粘贴逐行发送。终端采用仅设备回显，提交成功后移除本地草稿，TX 记录不在终端视图渲染；画面只渲染最近 2000 行，更早的滚动历史由模型保留；分栏视图用 `append_segments()` 按 (文本, 颜色, 加粗) 片段追加一行，`append_text()` 保留为单色快捷方式。
 - 终端模式高亮：每行渲染前调用 `terminal_highlight.find_highlights()` 识别 IPv4/MAC（`address`）、URL/邮箱（`link`）与关键字 OK/SUCCESS/PASS（`success`）、ERROR/FAIL（`error`）、WARN（`warning`）；关键字大小写不敏感、整词匹配，命中区间按 URL→邮箱→MAC→IPv4→关键字先到先得、重叠跳过；只有前景色未被 ANSI 显式设置的单元格才用 `theme_manager.highlight_colors()` 的对应颜色覆盖，其它属性不变。接收标题行的“高亮”勾选框（仅终端视图可见、默认勾选）通过 `TerminalOutput.set_highlight_enabled()` 统一开关整层高亮，并随 `SessionPreferences.highlight_enabled` 持久化。
-- `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；网格布局为“自动保存 + 格式”一行、“目录”标签 + 整宽路径输入框一行、“选择目录/打开目录”等宽一行、“导出当前缓冲”整宽一行、状态文本一行，且不设行拉伸，因此面板贴合内容、最小宽度可放进侧栏最窄宽度（按钮不设最小宽度会被裁切，因此按最长 `sizeHint()` 统一 `setMinimumWidth()` 并全部 `Expanding`）。长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。
+- `LogPanel`：以“日志与导出”分组呈现自动日志设置、打开目录和导出当前缓冲；网格布局为“自动保存 + 格式”一行、“目录”标签 + 整宽路径输入框一行、“选择目录/打开目录”等宽一行、“导出当前缓冲”整宽一行、状态文本一行，且不设行拉伸，因此面板贴合内容、最小宽度可放进侧栏最窄宽度（按钮不设最小宽度会被裁切，因此按最长 `sizeHint()` 统一 `setMinimumWidth()` 并全部 `Expanding`）。长路径状态文本不参与最小宽度计算，并按标签宽度做中间省略，完整路径保留在 tooltip。“导出当前缓冲”的默认文件名为目录框当前路径下的 `QSerialTool_export.<csv|txt>`，目录为空时回落到默认日志目录。
 - `theme_manager`：`apply_theme()` 以 `style_sheet.tokens()` 为唯一取色来源，同时设置调色板（`Base` 取 `editor`、`Window` 取 `window`、`Highlight` 取 `accent_fill`，深色下额外指定禁用态文字）和全局 QSS，并按主题重设占位符文字颜色；`resolved_theme()`、`data_colors()`、`ansi_colors()` 和 `data_font()` 提供主题解析结果、数据区配色（`DataColors` 含正文 `text`、方向 `rx`/`tx`、`system` 与状态色）、ANSI 16 色和等宽字体；`ansi_color()` 把 0-255 索引映射为颜色（0-15 主题语义色，16-231 为 xterm 色立方，232-255 为灰度），`highlight_colors()` 提供终端模式高亮的地址、链接与成功/失败/警告关键字颜色；`CONTROL_HEIGHT_PX = 24` 是标题行与顶栏控件的统一高度。
 - `style_sheet`：`ThemeTokens` 保存浅色/深色两套设计令牌，`build_stylesheet()` 用令牌生成卡片、标签栏、下拉框、勾选框、滚动条、菜单等控件的 QSS。渲染数据区的 `editor` 必须与 palette `Base` 取同一令牌，否则对比度测试将不再反映真实渲染；QSS 刻意不声明 `font-family`/`font-size`，数据区等宽字体仍由 `data_font()` 在控件上设置。资源放在 `ui/assets/`，`assets_dir()` 兼容 PyInstaller 单文件解包目录，`app_icon()` 读取其中的 PNG 作为窗口图标；下拉箭头与勾选标记引用同目录的 SVG（`chevron-*.svg`、`check*.svg`），新增资源需同时登记到 `pyproject.toml` 的 `package-data` 与 `packaging/qserialtool.spec` 的 `datas`。
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。

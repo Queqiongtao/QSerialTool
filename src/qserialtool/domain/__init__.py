@@ -4,6 +4,7 @@ from .buffer import DEFAULT_MAX_BYTES, DEFAULT_MAX_RECORDS, RecordBuffer
 from .codecs import (
     IncrementalTextDecoder,
     append_line_ending,
+    decode_partial,
     decode_text,
     encode_text,
     format_hex,
@@ -93,6 +94,7 @@ __all__ = [
     "ValidationError",
     "ViewMode",
     "append_line_ending",
+    "decode_partial",
     "decode_text",
     "encode_text",
     "format_hex",

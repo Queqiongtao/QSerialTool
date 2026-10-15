@@ -104,6 +104,45 @@ def test_controller_connects_sends_receives_and_disconnects() -> None:
     assert transport.close_count == 1
 
 
+def test_controller_joins_split_multibyte_characters_across_reads() -> None:
+    transport = FakeTransport()
+    snapshots = SnapshotRecorder()
+    records = RecordRecorder()
+    controller = _controller(transport, snapshots=snapshots, records=records)
+    controller.connect()
+    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
+
+    data = "串口".encode()
+    transport.push_read(data[:2])
+    transport.push_read(data[2:])
+
+    assert records.wait_for(lambda record: record.direction == "rx" and record.text == "串口")
+    record = next(item for item in records.records if item.direction == "rx")
+    assert record.raw == data
+    assert record.hex_text == "E4 B8 B2 E5 8F A3"
+    assert snapshots.wait_for(lambda snapshot: snapshot.rx_bytes == len(data))
+    assert controller.disconnect()
+
+
+def test_controller_flush_reports_incomplete_tail_on_disconnect() -> None:
+    transport = FakeTransport()
+    snapshots = SnapshotRecorder()
+    records = RecordRecorder()
+    controller = _controller(transport, snapshots=snapshots, records=records)
+    controller.connect()
+    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
+
+    transport.push_read(b"A\xe4")
+    assert records.wait_for(lambda record: record.direction == "rx" and record.raw == b"A")
+
+    assert controller.disconnect()
+
+    tail = [item for item in records.records if item.direction == "rx"][-1]
+    assert tail.raw == b"\xe4"
+    assert tail.text == "<E4>"
+    assert controller.snapshot.rx_bytes == 2
+
+
 def test_controller_reports_open_failure_without_losing_config() -> None:
     transport = FakeTransport(open_error=PortBusyError("端口已被占用。"))
     snapshots = SnapshotRecorder()

@@ -16,6 +16,7 @@ def test_domain_public_api_exports_expected_symbols() -> None:
         "SessionStateMachine",
         "TerminalScreen",
         "Transport",
+        "decode_partial",
         "encode_text",
         "parse_hex",
     }

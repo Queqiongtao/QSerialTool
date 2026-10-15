@@ -29,6 +29,7 @@ from qserialtool.domain import (
     TransportIOError,
     UserFacingError,
     ValidationError,
+    decode_partial,
 )
 
 SnapshotCallback = Callable[[SessionSnapshot], None]
@@ -93,6 +94,7 @@ class SessionController(WorkerEventHandler):
         self._last_error: UserFacingError | None = None
         self._rx_bytes = 0
         self._tx_bytes = 0
+        self._rx_tail = b""
         self._on_snapshot = selected_options.on_snapshot
         self._on_record = selected_options.on_record
         self._notify_current_snapshot()
@@ -215,6 +217,7 @@ class SessionController(WorkerEventHandler):
                 )
             self._config = selected_config
             self._last_error = None
+            self._rx_tail = b""
             self._state_machine.connect()
             worker = SerialWorker(
                 config=selected_config,
@@ -231,6 +234,7 @@ class SessionController(WorkerEventHandler):
         """请求 Worker 停止、关闭端口并等待清理。"""
         if timeout <= 0:
             raise ValidationError("断开超时必须大于零。")
+        tail_record: LogRecord | None = None
         with self._lock:
             if self._state_machine.state in {SessionState.DISCONNECTED, SessionState.CLOSED}:
                 return True
@@ -241,11 +245,14 @@ class SessionController(WorkerEventHandler):
                     SessionState.DISCONNECTING,
                 )
             if self._state_machine.state is SessionState.CONNECTED:
+                tail_record = self._flush_rx_tail_locked()
                 self._state_machine.begin_disconnect()
                 snapshot = self._build_snapshot()
             else:
                 snapshot = None
             worker = self._worker
+        if tail_record is not None:
+            self._notify_record(tail_record)
         if snapshot is not None:
             self._notify_snapshot(snapshot)
         if worker is not None:
@@ -278,9 +285,12 @@ class SessionController(WorkerEventHandler):
                 worker.request_stop()
                 worker.join(1.5)
         with self._lock:
+            tail_record = self._flush_rx_tail_locked()
             self._state_machine.close(force=force)
             self._worker = None
             snapshot = self._build_snapshot()
+        if tail_record is not None:
+            self._notify_record(tail_record)
         self._notify_snapshot(snapshot)
 
     def send(self, data: bytes) -> None:
@@ -330,21 +340,27 @@ class SessionController(WorkerEventHandler):
         self._notify_snapshot(snapshot)
 
     def on_bytes_received(self, data: bytes) -> None:
-        """处理接收数据。"""
+        """处理接收数据，拼接跨读取块的不完整多字节字符。"""
         with self._lock:
             if self._state_machine.state is not SessionState.CONNECTED:
                 return
-            record = LogRecord.from_bytes(
-                timestamp_utc=self._clock.now_utc(),
-                direction="rx",
-                raw=data,
-                encoding=self._config.encoding,
-                session_id=self._session_id,
-            )
-            self._append_record_locked(record)
+            combined = self._rx_tail + data
+            text, self._rx_tail = decode_partial(combined, self._config.encoding)
             self._rx_bytes += len(data)
+            record = None
+            if text:
+                record = LogRecord.from_bytes(
+                    timestamp_utc=self._clock.now_utc(),
+                    direction="rx",
+                    raw=combined[: len(combined) - len(self._rx_tail)],
+                    encoding=self._config.encoding,
+                    session_id=self._session_id,
+                    text=text,
+                )
+                self._append_record_locked(record)
             snapshot = self._build_snapshot()
-        self._notify_record(record)
+        if record is not None:
+            self._notify_record(record)
         self._notify_snapshot(snapshot)
 
     def on_bytes_sent(self, data: bytes) -> None:
@@ -391,10 +407,29 @@ class SessionController(WorkerEventHandler):
                 self._state_machine.mark_disconnected()
             elif state is SessionState.DISCONNECTING:
                 self._state_machine.mark_disconnected()
+            tail_record = self._flush_rx_tail_locked()
             self._close_log_locked()
             self._worker = None
             snapshot = self._build_snapshot()
+        if tail_record is not None:
+            self._notify_record(tail_record)
         self._notify_snapshot(snapshot)
+
+    def _flush_rx_tail_locked(self) -> LogRecord | None:
+        """把未成形的尾字节按占位文本记为接收记录，避免断开时静默丢弃。"""
+        if not self._rx_tail:
+            return None
+        tail = self._rx_tail
+        self._rx_tail = b""
+        record = LogRecord.from_bytes(
+            timestamp_utc=self._clock.now_utc(),
+            direction="rx",
+            raw=tail,
+            encoding=self._config.encoding,
+            session_id=self._session_id,
+        )
+        self._append_record_locked(record)
+        return record
 
     def _append_record_locked(self, record: LogRecord) -> None:
         """同时写入内存缓冲和当前自动日志。"""

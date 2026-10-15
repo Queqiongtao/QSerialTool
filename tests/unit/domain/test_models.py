@@ -115,6 +115,21 @@ def test_log_record_from_bytes_derives_text_and_hex() -> None:
     assert record.timestamp_utc is timestamp
 
 
+def test_log_record_accepts_text_completed_from_previous_chunk() -> None:
+    data = "串口".encode()
+    record = LogRecord.from_bytes(
+        timestamp_utc=datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc),
+        direction="rx",
+        raw=data[2:],
+        encoding="utf-8",
+        session_id="session-1",
+        text="串口",
+    )
+
+    assert record.text == "串口"
+    assert record.hex_text == "B2 E5 8F A3"
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -124,7 +139,7 @@ def test_log_record_from_bytes_derives_text_and_hex() -> None:
         {"encoding": "utf-16"},
         {"session_id": ""},
         {"hex_text": "FF"},
-        {"text": "wrong"},
+        {"text": b"wrong"},
     ],
 )
 def test_log_record_rejects_invalid_or_untrusted_values(overrides: dict[str, object]) -> None:
