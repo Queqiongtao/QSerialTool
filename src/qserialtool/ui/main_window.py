@@ -1,5 +1,6 @@
 """QSerialTool 主窗口。"""
 
+import logging
 from collections.abc import Callable
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, Qt, QTimer
@@ -44,6 +45,8 @@ from qserialtool.ui.theme_manager import (
     apply_theme,
     data_font,
 )
+
+logger = logging.getLogger(__name__)
 
 _THEMES: tuple[tuple[str, Theme], ...] = (
     ("跟随系统", "system"),
@@ -388,6 +391,9 @@ class MainWindow(QMainWindow):
             return
         self._session_manager.remove_session(widget.controller.session_id)
         self.tabs.removeTab(index)
+        # removeTab 只把控件移出标签栏，它仍挂在 QTabWidget 下；显式排队销毁，
+        # 释放整棵控件树、端口轮询定时器和该会话最多 32 MiB 的记录缓冲。
+        widget.deleteLater()
         self._schedule_save()
 
     def _theme_changed(self) -> None:
@@ -477,6 +483,7 @@ class MainWindow(QMainWindow):
             self._config_store.save(config)
             self._last_saved = config
         except ConfigIOError as exc:
+            logger.warning("配置保存失败：%s", exc.message)
             self.statusBar().showMessage(exc.message, 5000)
 
     def closeEvent(self, event: QCloseEvent) -> None:

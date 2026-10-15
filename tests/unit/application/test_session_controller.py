@@ -1,5 +1,6 @@
 """测试单会话控制器状态、缓冲和资源生命周期。"""
 
+from pathlib import Path
 from threading import Condition, Event
 from typing import cast
 
@@ -15,6 +16,7 @@ from qserialtool.application import (
 from qserialtool.domain import (
     ErrorCode,
     InvalidStateTransitionError,
+    LogIOError,
     PortBusyError,
     SerialConfig,
     SessionState,
@@ -59,6 +61,22 @@ class RecordRecorder:
             return self.condition.wait_for(
                 lambda: any(predicate(item) for item in self.records), timeout
             )
+
+
+class _FailingLogSink:
+    """写入即失败的日志输出，用于验证自动日志故障的上报与诊断记录。"""
+
+    def open(self, path: object) -> None:
+        return None
+
+    def write(self, record: object) -> None:
+        raise LogIOError("磁盘已满")
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
 
 
 def _controller(
@@ -141,6 +159,35 @@ def test_controller_flush_reports_incomplete_tail_on_disconnect() -> None:
     assert tail.raw == b"\xe4"
     assert tail.text == "<E4>"
     assert controller.snapshot.rx_bytes == 2
+
+
+def test_controller_reports_automatic_log_failures_once(caplog: object, tmp_path: Path) -> None:
+    transport = FakeTransport()
+    snapshots = SnapshotRecorder()
+    controller = SessionController(
+        config=SerialConfig(port="COM1"),
+        transport_factory=lambda: transport,
+        clock=FakeClock(),
+        options=SessionControllerOptions(
+            session_id="log-failure",
+            on_snapshot=snapshots,
+            log_sink_factory=lambda _format: _FailingLogSink(),
+            auto_log_enabled=True,
+            auto_log_directory=str(tmp_path),
+        ),
+    )
+
+    try:
+        controller.connect()
+        assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
+
+        transport.push_read(b"data")
+
+        assert snapshots.wait_for(lambda snapshot: snapshot.last_error is not None)
+        assert controller.snapshot.last_error is not None
+        assert "自动日志写入失败：磁盘已满" in caplog.text
+    finally:
+        controller.close(force=True)
 
 
 def test_controller_reports_open_failure_without_losing_config() -> None:

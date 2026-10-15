@@ -1,5 +1,6 @@
 """单标签串口会话的应用层编排。"""
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,8 @@ SnapshotCallback = Callable[[SessionSnapshot], None]
 RecordCallback = Callable[[LogRecord], None]
 
 MAX_SESSION_TITLE_LENGTH = 40
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +332,7 @@ class SessionController(WorkerEventHandler):
 
     def on_open_failed(self, error: DomainError) -> None:
         """处理串口打开失败事件。"""
+        logger.warning("串口打开失败：%s", error.message)
         with self._lock:
             if self._state_machine.state is SessionState.CONNECTING:
                 self._state_machine.mark_connect_failed()
@@ -381,6 +385,7 @@ class SessionController(WorkerEventHandler):
 
     def on_io_error(self, error: DomainError) -> None:
         """记录 I/O 错误并启动安全断开。"""
+        logger.warning("串口 I/O 错误：%s", error.message)
         with self._lock:
             if self._last_error is None:
                 self._last_error = error.to_user_facing()
@@ -441,6 +446,7 @@ class SessionController(WorkerEventHandler):
             service.write(record)
         except DomainError as exc:
             if self._last_error is None:
+                logger.warning("自动日志写入失败：%s", exc.message)
                 self._last_error = exc.to_user_facing()
 
     def _start_log_locked(self) -> None:

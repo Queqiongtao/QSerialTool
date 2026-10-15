@@ -21,15 +21,20 @@ from qserialtool.domain import (
 SCHEMA_VERSION = 1
 
 
-def default_config_path() -> Path:
-    """返回当前平台用户配置目录中的设置文件路径。"""
+def default_data_directory() -> Path:
+    """返回当前平台的用户数据目录。"""
     if sys.platform.startswith("win"):
         base = os.environ.get("APPDATA")
         root = Path(base) if base else Path.home() / "AppData" / "Roaming"
     else:
         base = os.environ.get("XDG_CONFIG_HOME")
         root = Path(base) if base else Path.home() / ".config"
-    return root / "QSerialTool" / "settings.json"
+    return root / "QSerialTool"
+
+
+def default_config_path() -> Path:
+    """返回当前平台用户配置目录中的设置文件路径。"""
+    return default_data_directory() / "settings.json"
 
 
 class JsonConfigStore:

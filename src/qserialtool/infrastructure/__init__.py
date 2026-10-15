@@ -1,7 +1,7 @@
 """串口、配置和日志的具体基础设施实现。"""
 
 from .csv_log_sink import CsvLogSink
-from .json_config_store import JsonConfigStore, default_config_path
+from .json_config_store import JsonConfigStore, default_config_path, default_data_directory
 from .port_scanner import SerialPortScanner
 from .serial_transport import SerialFactory, SerialTransport
 from .system_clock import SystemClock
@@ -16,4 +16,5 @@ __all__ = [
     "SystemClock",
     "TxtLogSink",
     "default_config_path",
+    "default_data_directory",
 ]

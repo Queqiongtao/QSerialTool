@@ -1,11 +1,17 @@
 """QSerialTool 应用启动和依赖组装。"""
 
+import logging
 import sys
 
 from PySide6.QtWidgets import QApplication
 
 from qserialtool import __version__
 from qserialtool.application import SessionManager
+from qserialtool.bootstrap.diagnostics import (
+    configure_logging,
+    install_exception_hooks,
+    install_qt_message_handler,
+)
 from qserialtool.domain import AppConfig, LogFormat, LogSink
 from qserialtool.infrastructure import (
     CsvLogSink,
@@ -49,6 +55,14 @@ def build_main_window(
 
 def main() -> int:
     """启动 Qt 应用并返回退出码。"""
+    log_path = configure_logging()
+    install_exception_hooks()
+    install_qt_message_handler()
+    logging.getLogger("qserialtool.app").info(
+        "QSerialTool %s 启动，诊断日志：%s",
+        __version__,
+        log_path,
+    )
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)

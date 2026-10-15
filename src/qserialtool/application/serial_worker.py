@@ -1,5 +1,6 @@
 """串口工作线程的命令队列和 I/O 循环。"""
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from queue import Empty, Full, Queue
@@ -20,6 +21,8 @@ DEFAULT_READ_TIMEOUT = 0.05
 DEFAULT_READ_CHUNK_SIZE = 8192
 DEFAULT_WRITE_QUEUE_SIZE = 256
 DEFAULT_CLOSE_TIMEOUT = 1.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +176,8 @@ class SerialWorker:
                     self._event_handler.on_io_error(TransportIOError("串口已关闭。"))
                     break
                 self._read_once(transport)
+        except Exception:
+            logger.exception("串口线程发生未预期错误，线程提前退出。")
         finally:
             if opened:
                 self._close_transport(transport)

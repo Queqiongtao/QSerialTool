@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QToolBar,
 )
+from shiboken6 import isValid
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
 from qserialtool.application import MAX_SESSION_TITLE_LENGTH, SessionManager
@@ -231,6 +232,58 @@ def test_main_window_requires_confirmation_to_close_active_tab(
     assert tab.controller.state is SessionState.CLOSED
     assert transport.close_count == 1
     window.close()
+
+
+def test_close_tab_schedules_widget_destruction(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+
+    window._close_tab(0)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    assert window.tabs.count() == 0
+    assert not isValid(tab)
+    window.close()
+
+
+def test_snapshot_fanout_skips_unchanged_panels(qtbot: object, monkeypatch: object) -> None:
+    transport = FakeTransport()
+    window = _window(qtbot, transport)
+    tab = _current_tab(window)
+    calls = {"connection": 0, "log": 0}
+    original_connection = tab.connection_panel.apply_snapshot
+    original_log = tab.log_panel.apply_snapshot
+
+    def counting_connection(snapshot: object) -> None:
+        calls["connection"] += 1
+        original_connection(snapshot)
+
+    def counting_log(snapshot: object) -> None:
+        calls["log"] += 1
+        original_log(snapshot)
+
+    monkeypatch.setattr(tab.connection_panel, "apply_snapshot", counting_connection)
+    monkeypatch.setattr(tab.log_panel, "apply_snapshot", counting_log)
+    try:
+        _connect(qtbot, tab)
+        baseline = dict(calls)
+        assert baseline["connection"] > 0
+        assert baseline["log"] > 0
+
+        transport.push_read(b"payload")
+        qtbot.waitUntil(lambda: "RX 7 B" in tab.status_label.text(), timeout=2000)
+
+        assert calls == baseline
+
+        _disconnect(qtbot, tab)
+        qtbot.waitUntil(
+            lambda: calls["connection"] > baseline["connection"],
+            timeout=2000,
+        )
+        assert calls["log"] > baseline["log"]
+    finally:
+        window.close()
 
 
 def test_receive_panel_pause_and_clear_buffer(qtbot: object, monkeypatch: object) -> None:

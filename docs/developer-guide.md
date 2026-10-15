@@ -155,7 +155,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 2. Worker 退出循环，关闭 `Transport`，最后触发 `on_stopped()`。
 3. controller 刷新并关闭活动日志，然后把状态改回 `disconnected`。
 4. 超时则进入 `error` 并记录“等待串口线程退出超时”。
-5. 关闭标签或退出程序时使用 `force=True`；退出前 Qt 主线程会等待 Worker 清理。
+5. 关闭标签时窗口先用 `force=True` 关闭会话，再从 `SessionManager` 注销并 `deleteLater()` 排队销毁标签页，释放其控件树、端口轮询定时器和最多 `32 MiB` 的记录缓冲；退出程序时对所有会话使用 `force=True`，Qt 主线程等待 Worker 清理。
 
 ## 7. 缓冲、配置与日志实现
 
@@ -188,12 +188,22 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 
 CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`encoding`、`text`、`hex`。TXT 使用 UTF-8，格式为 `[本地时间] 方向 [编码] 文本`。
 
+### 7.4 诊断日志与未捕获异常
+
+`bootstrap/diagnostics.py` 在 `main()` 启动早期装配应用级诊断：
+
+- `configure_logging()` 幂等地挂载滚动文件处理器，写入 `%APPDATA%\QSerialTool\logs\app.log`（Linux 为 `${XDG_CONFIG_HOME:-$HOME/.config}/QSerialTool/logs/app.log`），单文件上限 `1 MB`、保留 `3` 份备份，格式为“本地时间 级别 [线程名] 记录器: 消息”。
+- `install_exception_hooks()` 接管 `sys.excepthook` 与 `threading.excepthook`，主线程和串口工作线程的未捕获异常带 traceback 写入诊断日志。
+- `install_qt_message_handler()` 把 Qt 内部消息按级别转发到 `qserialtool.qt` 记录器。
+- 串口打开失败、I/O 错误、自动日志写入失败、配置保存失败和端口枚举异常会分别写入 `WARNING` 或 `DEBUG` 级记录，便于事后排查。
+- 诊断日志与用户可配置的“自动日志”相互独立：前者记录应用自身事件，后者逐条保存串口数据。
+
 ## 8. UI 层职责
 
 - `MainWindow`：单行头部，不创建 `QMenuBar` 与 `QToolBar`；标签栏右上角角落控件依次承载“主题”下拉框、“字号”下拉框（两者高 `CONTROL_HEIGHT_PX`）、“+”新建按钮和“☰”菜单（新建会话/关闭当前会话/字号/使用帮助/关于/退出），菜单动作额外用 `addAction()` 挂到窗口以保留 `Ctrl+T/W/Q`；标签栏通过事件过滤器处理双击重命名与右键菜单（重命名…/关闭当前会话/新建会话），菜单动作作用于被点击的标签，右键坐标取 `QContextMenuEvent.pos()/globalPos()`（该类没有 `position()`/`globalPosition()`），重命名对话框用 `dialog.findChild(QLineEdit)` 设置长度上限（`QInputDialog.lineEdit()` 在 PySide6 未暴露），弹菜单与弹对话框分别抽成 `_show_tab_menu()`/`_ask_session_title()` 便于测试替换；负责标签、窗口状态与配置保存（内容未变化时跳过写盘），窗口最小尺寸 900×600，主题变化后对每个 `SessionTab` 重新应用数据区字号并调用 `refresh_theme()`。
 - `HelpWindow`：由 ☰ 菜单“使用帮助”（`F1`）打开的非模态帮助窗口，左侧 `QListWidget` 目录、右侧只读 `QTextBrowser` 正文，中间用 `QSplitter` 分隔；正文由 `setMarkdown()` 渲染随包分发的 `ui/assets/user-guide.md`（与 `docs/user-guide.md` 逐字节一致，由单元测试守卫），目录取 `headingLevel() == 2` 的标题块并用 `block.position()` 记录位置，选中目录项时把 `QTextCursor` 移到该位置后 `ensureCursorVisible()`；资源缺失时只显示一行降级提示而不抛错；`MainWindow._show_help()` 懒创建并复用单实例。
 - `AboutDialog`：由 ☰ 菜单“关于 QSerialTool”打开的非模态对话框，显示应用图标、标题、版本（`qserialtool.__version__`）、作者、GitHub 仓库与第三方组件声明链接、运行环境（`platform.python_version()` 与 `qVersion()`）和版权、许可证信息；链接经 `linkActivated` 交给 `QDesktopServices.openUrl()` 用系统浏览器打开而不是 `setOpenExternalLinks(True)`，便于单元测试替换 `QDesktopServices`；链接颜色取调色板 `Link` 角色（`_palette_roles` 用主题 `accent` 令牌填充，浅色深色都满足对比度测试）；尺寸按内容 `sizeHint()` 取固定值，系统字体变化时不裁字；`MainWindow._show_about()` 懒创建并复用单实例。
-- `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上并顶部对齐（末尾 `addStretch(1)`，多余高度留在滚动区背景而不是分组框内部），接收标题行最左侧是侧栏折叠按钮，右侧依次是“发送设置”（按下文 `fold_rank` 参与溢出折叠）和“终端/分栏”；终端视图隐藏 `SendPanel`、收起垂直分隔条，接收区末尾使用原始流内联输入；切回分栏恢复原比例，视图模式随标签持久化，底部状态条由 `state_indicator` 色点和 `status_label` 组成；快照标题变化时发出 `title_changed(str)`，由窗口据此刷新标签文本与 tooltip。
+- `SessionTab`：用水平 `QSplitter` 组合左侧设置面板和右侧收发区；设置面板是 `QScrollArea`，内容控件挂在 `sidebar_content` 上并顶部对齐（末尾 `addStretch(1)`，多余高度留在滚动区背景而不是分组框内部），接收标题行最左侧是侧栏折叠按钮，右侧依次是“发送设置”（按下文 `fold_rank` 参与溢出折叠）和“终端/分栏”；终端视图隐藏 `SendPanel`、收起垂直分隔条，接收区末尾使用原始流内联输入；切回分栏恢复原比例，视图模式随标签持久化，底部状态条由 `state_indicator` 色点和 `status_label` 组成；快照标题变化时发出 `title_changed(str)`，由窗口据此刷新标签文本与 tooltip；工作线程按记录广播快照，但只有状态或配置变化时才刷新 `ConnectionPanel`、发送按钮和 `LogPanel`，状态点颜色变化时才重设样式表，其余快照只更新底部状态文本。
 - `ConnectionPanel`：端口刷新、配置校验、连接/断开、DTR/RTS 和文本编码选择；`encoding_combo` 提供 `UTF-8`/`GB18030`/`ASCII` 三选一，`build_config()` 读取其 `userData`，并与其余连接参数一同在连接中禁用。表单标签右对齐，端口集合不变时不重建下拉框以保留输入光标；`set_refresh_active()` 按标签可见性启停轮询，自动枚举周期为 30 s，端口行右侧 `refresh_button` 可手动立即枚举（连接中与端口控件一同禁用）。下拉项显示「设备名 · 描述」并用 `userData` 存设备名，端口框只显示设备名；`current_port()` 解析真正的端口值，`describe_port()` 供状态栏显示带描述的文本，弹窗宽度按最长项自适应（上限 480 px）。
 - `ReceivePanel`：接收标题行（格式、时间戳、方向过滤、暂停、清屏、高亮、自动换行、自动滚动）和内存缓冲显示；输出控件为 `TerminalOutput`，空文档时用 `setPlaceholderText("暂无数据")` 显示空态，终端视图下清空该占位文字以免与块状光标重叠。标题行由 `_HeaderOverflow` 管理：`_FOLD_RANKS` 给出折叠优先级（数值越大越先折叠），`resizeEvent` 触发 `reflow()`，用各控件 `sizeHint()` 之和与面板宽度比较后决定折叠集合——只隐藏原控件并在最右端“⋯”菜单挂一个同名等价 `QAction`（勾选框双向同步），不搬动控件；“⋯”本身尺寸固定为 `CONTROL_HEIGHT_PX`，无折叠项时隐藏。`set_mode_visible()` 是标题行可见性的唯一写入方，统一按“模式可见且未折叠”设置 `setVisible()`，终端模式不再直接改控件可见性。终端模式把 RX 文本喂给 `TerminalScreen` 后按网格渲染，不应用时间戳/RX/TX 过滤并隐藏这些控件；首次进入终端视图时用最近 2000 条 RX 文本重建模型，切换回分栏时丢弃，暂停时继续喂模型但冻结渲染，清屏同时重置模型；草稿不写入记录缓冲或导出。取色走 `theme_manager.data_colors()`，分栏视图按方向分层着色：时间戳用 `system` 灰、`RX`/`TX` 前缀用 `rx`/`tx` 方向色加粗、正文用 `text` 默认色，`SYSTEM` 记录整行灰色；可通过 `add_leading_header_widget()`/`add_trailing_header_widget()`（可选 `fold_rank` 关键字，默认 0 表示永不折叠）在标题行两侧插入外部控件，并通过 `refresh_theme()` 响应主题切换。
 - `SendPanel`：分栏视图使用两行标题（格式/换行/发送、历史/间隔/周期）、文本/HEX 编码和周期发送；编辑器使用等宽字体，标题行下拉框与按钮统一为 `CONTROL_HEIGHT_PX`。终端视图不再使用独立发送控件，`send_content()` 负责发送内联终端提交的单行文本；构造出的 payload 为空时直接视为成功无操作，不调用 controller。
@@ -248,7 +258,7 @@ git config core.hooksPath .githooks
 .\.venv\Scripts\python.exe scripts\check_commit_message.py .git/COMMIT_EDITMSG
 ```
 
-规则位于 `docs/doc-sync-rules.json`。每次变更都必须在同一提交中更新或新增至少一个文档，纯测试变更可豁免但须在提交说明中注明理由，`AGENT.md` 变更必须同步 `implementation-plan.md`。具体映射：UI 变更必须至少同步用户手册或开发指南；domain/application 变更必须同步开发指南或 ADR；基础设施变更必须同步开发指南或用户手册；构建和项目元数据变更必须同步对应技术文档。未配置运行时路径会直接失败。
+规则位于 `docs/doc-sync-rules.json`。每次变更都必须在同一提交中更新或新增至少一个文档，纯测试变更可豁免但须在提交说明中注明理由，`AGENT.md` 变更必须同步 `implementation-plan.md`。具体映射：UI 变更必须至少同步用户手册或开发指南；domain/application 变更必须同步开发指南或 ADR；基础设施变更必须同步开发指南或用户手册；bootstrap 变更必须同步开发指南或用户手册；构建和项目元数据变更必须同步对应技术文档。未配置运行时路径会直接失败。
 
 `scripts/check_commit_message.py` 校验提交信息是否使用 Conventional Commits 类型前缀并包含简体中文标题与正文，合并与回滚自动提交会被跳过。该检查是启发式门禁，只验证中文字符存在，语义质量仍由人工审查保证。
 

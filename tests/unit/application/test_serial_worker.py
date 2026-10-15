@@ -16,6 +16,13 @@ from qserialtool.domain import (
 )
 
 
+class _ExplodingHandler(RecordingWorkerHandler):
+    """收到数据时抛出未预期异常，验证 Worker 的兜底日志与清理。"""
+
+    def on_bytes_received(self, data: bytes) -> None:
+        raise RuntimeError("callback failed")
+
+
 def _worker(
     transport: FakeTransport,
     *,
@@ -85,6 +92,25 @@ def test_worker_maps_transport_factory_exception() -> None:
     assert handler.open_failed_event.wait(1.0)
     assert handler.stopped_event.wait(1.0)
     assert isinstance(handler.open_error, InternalError)
+
+
+def test_worker_logs_unexpected_loop_errors(caplog: object) -> None:
+    transport = FakeTransport()
+    handler = _ExplodingHandler()
+    worker = SerialWorker(
+        config=SerialConfig(port="COM1"),
+        transport_factory=lambda: transport,
+        event_handler=handler,
+        options=SerialWorkerOptions(read_timeout=0.005),
+    )
+
+    worker.start()
+    transport.push_read(b"x")
+
+    assert handler.stopped_event.wait(2.0)
+    assert worker.join(2.0)
+    assert not transport.is_open
+    assert "串口线程发生未预期错误" in caplog.text
 
 
 @pytest.mark.parametrize(

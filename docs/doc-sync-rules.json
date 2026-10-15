@@ -16,6 +16,11 @@
       "required_any": ["docs/developer-guide.md", "docs/user-guide.md"]
     },
     {
+      "name": "bootstrap",
+      "sources": ["src/qserialtool/bootstrap/**"],
+      "required_any": ["docs/developer-guide.md", "docs/user-guide.md"]
+    },
+    {
       "name": "build",
       "sources": ["packaging/**", "scripts/build.ps1", "scripts/build.sh", "scripts/build.bat"],
       "required_any": ["docs/build-and-release.md", "docs/release-checklist.md"]

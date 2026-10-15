@@ -72,6 +72,7 @@ class SessionTab(QWidget):
         self._snapshot: SessionSnapshot | None = None
         self._title = ""
         self._last_error_key: tuple[object, str | None] | None = None
+        self._state_color_cache: str | None = None
         self._sidebar_visible = True
         self._sidebar_width = _SIDEBAR_DEFAULT_WIDTH
         self._view_mode: ViewMode = preferences.view_mode if preferences else "split"
@@ -322,6 +323,7 @@ class SessionTab(QWidget):
     def refresh_theme(self) -> None:
         """主题切换后刷新接收区配色和状态点颜色。"""
         self.receive_panel.refresh_theme()
+        self._state_color_cache = None
         self._refresh_status()
 
     def _refresh_status(self) -> None:
@@ -339,9 +341,11 @@ class SessionTab(QWidget):
         )
         self.status_label.setText(status_text)
         self.status_label.setToolTip(status_text)
-        self.state_indicator.setStyleSheet(
-            f"color: {self._state_color(snapshot.state)}; font-weight: bold;"
-        )
+        # 每次记录都会刷新状态文本，但样式表只在状态颜色变化时重设，避免反复 polish。
+        color = self._state_color(snapshot.state)
+        if color != self._state_color_cache:
+            self._state_color_cache = color
+            self.state_indicator.setStyleSheet(f"color: {color}; font-weight: bold;")
 
     @staticmethod
     def _state_color(state: SessionState) -> str:
@@ -445,13 +449,21 @@ class SessionTab(QWidget):
 
     @Slot(object)
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
+        previous = self._snapshot
         self._snapshot = snapshot
         if snapshot.title != self._title:
             self._title = snapshot.title
             self.title_changed.emit(snapshot.title)
-        self.connection_panel.apply_snapshot(snapshot)
-        self.send_panel.set_connected(snapshot.state is SessionState.CONNECTED)
-        self.log_panel.apply_snapshot(snapshot)
+        # 工作线程按记录广播快照；状态与配置未变时跳过重量级面板，只刷新状态条。
+        if (
+            previous is None
+            or snapshot.state is not previous.state
+            or snapshot.config != previous.config
+        ):
+            self.connection_panel.apply_snapshot(snapshot)
+        if previous is None or snapshot.state is not previous.state:
+            self.send_panel.set_connected(snapshot.state is SessionState.CONNECTED)
+            self.log_panel.apply_snapshot(snapshot)
         self._refresh_status()
         if snapshot.last_error is None:
             self._last_error_key = None

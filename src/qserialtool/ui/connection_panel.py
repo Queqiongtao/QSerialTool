@@ -1,5 +1,6 @@
 """串口连接参数和连接控制面板。"""
 
+import logging
 from collections.abc import Callable
 
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer, Signal
@@ -42,6 +43,8 @@ _ENCODINGS = (
 
 # 自动枚举周期放宽到 30 s，热插拔主要靠端口行右侧的刷新按钮即时感知。
 _PORT_REFRESH_INTERVAL_MS = 30_000
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionPanel(QGroupBox):
@@ -290,7 +293,8 @@ class ConnectionPanel(QGroupBox):
             return
         try:
             ports = tuple(self._port_provider())
-        except Exception:
+        except Exception as exc:
+            logger.debug("端口枚举失败：%s", exc)
             return
         if ports == self._port_items:
             return

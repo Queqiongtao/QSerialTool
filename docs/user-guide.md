@@ -224,6 +224,24 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/QSerialTool/settings.json
 
 关闭仍有活动连接的会话时，程序会要求确认。退出时所有会话被强制关闭，自动日志刷新后写入磁盘。
 
+### 7.4 诊断日志
+
+程序自身的事件与异常写入独立于自动日志的诊断文件，反馈问题时请一并附上：
+
+Windows 默认路径：
+
+```text
+%APPDATA%\QSerialTool\logs\app.log
+```
+
+Linux 默认路径：
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/QSerialTool/logs/app.log
+```
+
+诊断日志按 `1 MB` 滚动、保留最近 `3` 份备份，记录启动、串口打开失败、I/O 错误、自动日志或配置写入失败、未捕获异常和 Qt 警告等；它不包含串口收发数据，收发内容只在“自动日志”里。
+
 ## 8. 常见问题
 
 ### 端口列表为空
