@@ -219,6 +219,66 @@ def test_scrollback_is_trimmed_to_max_rows() -> None:
     assert lines == ("line4", "line5", "")
 
 
+def test_dirty_range_tracks_changed_rows_only() -> None:
+    screen = TerminalScreen()
+    screen.feed("one\ntwo\nthree")
+    screen.clear_dirty()
+
+    assert screen.dirty_range() == (0, 0)
+
+    screen.feed("\rX")
+
+    assert screen.dirty_range() == (2, 3)
+
+
+def test_dirty_range_shifts_with_scrollback_trim() -> None:
+    screen = TerminalScreen(max_rows=3)
+    screen.feed("a\nb\nc")
+    screen.clear_dirty()
+
+    screen.feed("\nx\ny")
+
+    # 两行写入发生在淘汰之前，行索引整体前移两行后仍是同两行。
+    assert screen.text_lines() == ("c", "x", "y")
+    assert screen.dirty_range() == (1, 3)
+
+
+def test_dropped_rows_counts_trimmed_scrollback() -> None:
+    screen = TerminalScreen(max_rows=3)
+    screen.feed("a\nb\nc\nd\ne")
+
+    assert screen.text_lines() == ("c", "d", "e")
+    assert screen.dropped_rows == 2
+
+    screen.reset()
+
+    assert screen.dropped_rows == 0
+
+
+def test_erase_marks_affected_rows_dirty() -> None:
+    screen = TerminalScreen()
+    screen.feed("one\ntwo")
+    screen.clear_dirty()
+
+    screen.feed("\x1b[1J")
+
+    assert screen.dirty_range() == (0, 2)
+
+    screen.clear_dirty()
+    screen.feed("\x1b[2J")
+
+    assert screen.dirty_range() == (0, 1)
+
+
+def test_row_accessor_returns_single_row_snapshot() -> None:
+    screen = TerminalScreen()
+    screen.feed("ab\ncd")
+
+    assert screen.row_count == 2
+    assert screen.row(1) == screen.lines()[1]
+    assert screen.row(1)[0].char == "c"
+
+
 def test_reset_clears_text_and_style() -> None:
     screen = TerminalScreen()
     screen.feed("abc\x1b[31m\n")

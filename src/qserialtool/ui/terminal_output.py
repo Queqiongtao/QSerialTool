@@ -1,6 +1,7 @@
 """终端视图控件：渲染终端网格并提供光标处的内联输入。"""
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import (
@@ -26,6 +27,24 @@ from qserialtool.ui.theme_manager import ansi_color, data_colors, highlight_colo
 _MAX_RENDERED_ROWS = 2000
 
 
+@dataclass(frozen=True, slots=True)
+class _ScreenWindow:
+    """一帧增量更新的几何：模型行号与文档窗口都换算成全局行号。"""
+
+    total: int
+    hidden: int
+    dropped: int
+    cursor_row: int
+    cursor_col: int
+    visible_cursor: int
+    window_start: int
+    previous_start: int
+    previous_end: int
+    drops: int
+    appends: int
+    append_start_row: int
+
+
 class TerminalOutput(QPlainTextEdit):
     """渲染终端网格，并把单行输入维护为光标处的可编辑草稿。"""
 
@@ -45,6 +64,11 @@ class TerminalOutput(QPlainTextEdit):
         self._deferred_render = False
         self._rendering = False
         self._scrolling = False
+        self._rendered_screen: TerminalScreen | None = None
+        self._rendered_total = -1
+        self._rendered_hidden = 0
+        self._rendered_dropped = 0
+        self._rendered_cursor: tuple[int, int] | None = None
         self.setReadOnly(True)
         self.setUndoRedoEnabled(False)
         self.setAcceptDrops(False)
@@ -67,6 +91,7 @@ class TerminalOutput(QPlainTextEdit):
         self._input_start_position = 0
         self._cursor_block_number = 0
         self._deferred_render = False
+        self._invalidate_rendered_state()
         super().clear()
         self.setReadOnly(not enabled)
 
@@ -121,6 +146,7 @@ class TerminalOutput(QPlainTextEdit):
     def clear_content(self) -> None:
         """清空控件内容；终端模式由调用方随后重建画面。"""
         self._deferred_render = False
+        self._invalidate_rendered_state()
         super().clear()
         self._input_start_position = 0
         self._cursor_block_number = 0
@@ -131,28 +157,50 @@ class TerminalOutput(QPlainTextEdit):
 
     def append_segments(self, segments: Sequence[tuple[str, str, bool]]) -> None:
         """按 (文本, 颜色, 是否加粗) 片段追加一行，行尾用默认文本色换行。"""
+        self.append_lines((segments,))
+
+    def append_lines(self, lines: Sequence[Sequence[tuple[str, str, bool]]]) -> None:
+        """在一个编辑块内追加多行，行尾用默认文本色换行，供批量记录合并渲染。"""
+        if not lines:
+            return
         cursor = QTextCursor(self.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        for text, color, bold in segments:
-            if not text:
-                continue
-            cursor.setCharFormat(self._format_for(color, bold))
-            cursor.insertText(text)
         default_color = self.palette().color(QPalette.ColorRole.Text).name()
-        cursor.setCharFormat(self._format_for(default_color))
-        cursor.insertText("\n")
+        cursor.beginEditBlock()
+        for segments in lines:
+            for text, color, bold in segments:
+                if not text:
+                    continue
+                cursor.setCharFormat(self._format_for(color, bold))
+                cursor.insertText(text)
+            cursor.setCharFormat(self._format_for(default_color))
+            cursor.insertText("\n")
+        cursor.endEditBlock()
         if not self._batch_update:
             self._scroll_after_update()
 
-    def render_screen(self, screen: TerminalScreen) -> None:
-        """按终端模型重建画面，并在光标处渲染输入草稿。"""
+    def render_screen(self, screen: TerminalScreen, *, full: bool = False) -> None:
+        """按终端模型更新画面，并在光标处渲染输入草稿。
+
+        ``full=True`` 丢弃增量状态强制整屏重建，供主题、高亮或过滤变化后调用。
+        """
         if not self._terminal_mode:
             return
         self._screen = screen
+        if full:
+            self._invalidate_rendered_state()
         if self.textCursor().hasSelection():
             self._deferred_render = True
             return
         self._render_current_screen()
+
+    def _invalidate_rendered_state(self) -> None:
+        """让下一帧走整屏重建路径。"""
+        self._rendered_screen = None
+        self._rendered_total = -1
+        self._rendered_hidden = 0
+        self._rendered_dropped = 0
+        self._rendered_cursor = None
 
     def _render_current_screen(self) -> None:
         """重建当前终端画面，供延迟刷新调用。"""
@@ -162,9 +210,34 @@ class TerminalOutput(QPlainTextEdit):
         self._deferred_render = False
         self._rendering = True
         try:
-            self._rebuild_screen(screen)
+            self._update_screen(screen)
         finally:
             self._rendering = False
+
+    def _update_screen(self, screen: TerminalScreen) -> None:
+        """渲染一帧：画面只追加或局部改写时增量更新，否则整屏重建。"""
+        if self._can_update_incrementally(screen):
+            self._apply_screen_changes(screen)
+        else:
+            self._rebuild_screen(screen)
+        screen.clear_dirty()
+
+    def _can_update_incrementally(self, screen: TerminalScreen) -> bool:
+        """判断上一帧状态能否直接演进到当前画面。"""
+        if self._rendered_screen is not screen or self._rendered_total < 0:
+            return False
+        total = screen.row_count
+        if total < self._rendered_total or screen.dropped_rows < self._rendered_dropped:
+            return False
+        hidden = max(total - _MAX_RENDERED_ROWS, 0)
+        window_start = screen.dropped_rows + hidden
+        previous_end = self._rendered_dropped + self._rendered_total
+        if window_start >= previous_end:
+            # 上一帧窗口整体滑出，整屏重建更简单。
+            return False
+        cursor_row, _ = screen.cursor
+        # 光标已在渲染窗口之上时交由整屏重建处理其钳制语义。
+        return cursor_row >= hidden
 
     def _rebuild_screen(self, screen: TerminalScreen) -> None:
         rows = screen.lines()
@@ -197,8 +270,176 @@ class TerminalOutput(QPlainTextEdit):
             if index != len(visible) - 1:
                 cursor.insertText("\n")
         cursor.endEditBlock()
+        self._rendered_screen = screen
+        self._rendered_total = len(rows)
+        self._rendered_hidden = hidden
+        self._rendered_dropped = screen.dropped_rows
+        self._rendered_cursor = (cursor_row, cursor_col)
         self._place_input_cursor()
         self._scroll_after_update()
+
+    def _apply_screen_changes(self, screen: TerminalScreen) -> None:
+        """只删除顶部滑出窗口的行、追加新行并改写变化行。
+
+        行统一换算成自模型创建起累计的全局行号，屏幕自身裁剪与渲染窗口滑动
+        可以同帧发生，文档窗口始终等于全局区间 ``[window_start, window_end)``。
+        """
+        window = self._screen_window(screen)
+        dirty_from, dirty_to = screen.dirty_range()
+        rewrites = self._planned_rewrites(screen, window)
+        if (
+            window.drops == 0
+            and window.appends == 0
+            and not rewrites
+            and self._rendered_cursor == (window.visible_cursor, window.cursor_col)
+            and not (dirty_from <= window.cursor_row < dirty_to)
+        ):
+            self._place_input_cursor()
+            self._scroll_after_update()
+            return
+        self._write_screen_edits(screen, window, rewrites)
+        self._rendered_screen = screen
+        self._rendered_total = window.total
+        self._rendered_hidden = window.hidden
+        self._rendered_dropped = window.dropped
+        self._rendered_cursor = (window.visible_cursor, window.cursor_col)
+        self._place_input_cursor()
+        self._scroll_after_update()
+
+    def _screen_window(self, screen: TerminalScreen) -> "_ScreenWindow":
+        """按上一帧状态算出本帧窗口的全局行号几何。"""
+        total = screen.row_count
+        hidden = max(total - _MAX_RENDERED_ROWS, 0)
+        dropped = screen.dropped_rows
+        cursor_row, cursor_col = screen.cursor
+        previous_start = self._rendered_dropped + self._rendered_hidden
+        previous_end = self._rendered_dropped + self._rendered_total
+        return _ScreenWindow(
+            total=total,
+            hidden=hidden,
+            dropped=dropped,
+            cursor_row=cursor_row,
+            cursor_col=cursor_col,
+            visible_cursor=cursor_row - hidden,
+            window_start=dropped + hidden,
+            previous_start=previous_start,
+            previous_end=previous_end,
+            drops=dropped + hidden - previous_start,
+            appends=dropped + total - previous_end,
+            append_start_row=previous_end - dropped,
+        )
+
+    def _planned_rewrites(self, screen: TerminalScreen, window: "_ScreenWindow") -> set[int]:
+        """返回需要原位改写的屏幕行，含窗口滑动后要还原的旧草稿行。"""
+        dirty_from, dirty_to = screen.dirty_range()
+        rewrites = set(
+            range(max(dirty_from, window.hidden), min(dirty_to, window.append_start_row))
+        )
+        previous_cursor = self._rendered_cursor
+        if previous_cursor is not None:
+            # 旧草稿行换算到本帧的文档行号；还在窗口内且不再是光标行时要还原成普通行。
+            previous_line = window.previous_start + previous_cursor[0] - window.window_start
+            if previous_line >= 0 and previous_line != window.visible_cursor:
+                rewrites.add(previous_line + window.hidden)
+        return rewrites
+
+    def _write_screen_edits(
+        self,
+        screen: TerminalScreen,
+        window: "_ScreenWindow",
+        rewrites: set[int],
+    ) -> None:
+        """在一个编辑块内提交结构变更、变化行与新光标行。"""
+        header_offset = 1 if window.hidden else 0
+        document = self.document()
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        try:
+            if window.drops > 0:
+                self._drop_top_lines(
+                    header_offset=1 if self._rendered_hidden else 0,
+                    count=window.drops,
+                )
+            if window.hidden > 0:
+                header_text = f"… 已隐藏较早的 {window.hidden} 行"
+                if self._rendered_hidden == 0:
+                    header = QTextCursor(document)
+                    header.movePosition(QTextCursor.MoveOperation.Start)
+                    header.setCharFormat(self._format_for(data_colors().system))
+                    header.insertText(header_text + "\n")
+                elif window.hidden != self._rendered_hidden:
+                    self._replace_block_text(0, header_text, self._format_for(data_colors().system))
+            for row_index in sorted(rewrites):
+                self._replace_block_line(
+                    row_index - window.hidden + header_offset,
+                    screen.row(row_index),
+                )
+            if window.appends > 0:
+                self._append_rows(screen, window.append_start_row, window.total)
+            self._replace_cursor_block(
+                window.visible_cursor + header_offset,
+                screen.row(window.cursor_row),
+                window.cursor_col,
+            )
+        finally:
+            edit.endEditBlock()
+
+    def _drop_top_lines(self, *, header_offset: int, count: int) -> None:
+        """删除文档顶部 count 个内容块，保留表头行。"""
+        document = self.document()
+        first = document.findBlockByNumber(header_offset)
+        last = document.findBlockByNumber(header_offset + count)
+        cutter = QTextCursor(document)
+        cutter.setPosition(first.position())
+        cutter.setPosition(last.position(), QTextCursor.MoveMode.KeepAnchor)
+        cutter.removeSelectedText()
+
+    def _replace_block_text(
+        self, block_number: int, text: str, text_format: QTextCharFormat
+    ) -> None:
+        cursor = self._cleared_line_cursor(block_number)
+        cursor.setCharFormat(text_format)
+        cursor.insertText(text)
+
+    def _replace_block_line(self, block_number: int, row: tuple[TerminalCell, ...]) -> None:
+        cursor = self._cleared_line_cursor(block_number)
+        self._write_cells(cursor, row, 0, None, self._highlight_overrides(row))
+
+    def _replace_cursor_block(
+        self,
+        block_number: int,
+        row: tuple[TerminalCell, ...],
+        cursor_col: int,
+    ) -> None:
+        """重写光标行：只在光标前渲染单元格，草稿接在其后。"""
+        cursor = self._cleared_line_cursor(block_number)
+        self._write_cells(cursor, row, 0, cursor_col, self._highlight_overrides(row))
+        self._input_start_position = cursor.position()
+        cursor.setCharFormat(self._format_for_style(TerminalStyle()))
+        if self._draft:
+            cursor.insertText(self._draft)
+        self._cursor_block_number = cursor.blockNumber()
+
+    def _cleared_line_cursor(self, block_number: int) -> QTextCursor:
+        """返回位于目标行、且已清掉原行文本的光标。"""
+        block = self.document().findBlockByNumber(block_number)
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(block.position())
+        cursor.setPosition(
+            block.position() + len(block.text()),
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        cursor.removeSelectedText()
+        return cursor
+
+    def _append_rows(self, screen: TerminalScreen, start: int, end: int) -> None:
+        """在文档末尾追加 [start, end) 行。"""
+        cursor = QTextCursor(self.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        for row_index in range(start, end):
+            row = screen.row(row_index)
+            cursor.insertText("\n")
+            self._write_cells(cursor, row, 0, None, self._highlight_overrides(row))
 
     def _write_cells(
         self,

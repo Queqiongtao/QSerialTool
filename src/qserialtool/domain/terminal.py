@@ -142,6 +142,9 @@ class TerminalScreen:
         self._cursor_col = 0
         self._style = DEFAULT_STYLE
         self._pending = ""
+        self._dropped = 0
+        self._dirty_from: int | None = None
+        self._dirty_to = 0
 
     @property
     def cursor(self) -> tuple[int, int]:
@@ -153,9 +156,43 @@ class TerminalScreen:
         """返回单行最大列数。"""
         return self._max_columns
 
+    @property
+    def row_count(self) -> int:
+        """返回当前行数，渲染方可据此增量取行而不整屏复制。"""
+        return len(self._rows)
+
+    @property
+    def dropped_rows(self) -> int:
+        """返回已从顶部淘汰的行数，供渲染方对齐滚动窗口的内容位置。"""
+        return self._dropped
+
+    def row(self, index: int) -> tuple[TerminalCell, ...]:
+        """返回单行只读快照。"""
+        return tuple(self._rows[index])
+
     def lines(self) -> tuple[tuple[TerminalCell, ...], ...]:
         """返回只读的行快照。"""
         return tuple(tuple(row) for row in self._rows)
+
+    def dirty_range(self) -> tuple[int, int]:
+        """返回自上次 ``clear_dirty()`` 以来内容变化的行区间（右开）。
+
+        行索引按当前行表计；滚动淘汰只会改变索引，内容未变的行不算脏。
+        """
+        if self._dirty_from is None or self._dirty_from >= self._dirty_to:
+            return (0, 0)
+        return self._dirty_from, self._dirty_to
+
+    def clear_dirty(self) -> None:
+        """由渲染方在完成一帧渲染后清除内容变化标记。"""
+        self._dirty_from = None
+        self._dirty_to = 0
+
+    def _touch(self, row: int) -> None:
+        """标记单行内容变化，越界行按区间并集累积。"""
+        if self._dirty_from is None or self._dirty_from >= self._dirty_to or row < self._dirty_from:
+            self._dirty_from = row
+        self._dirty_to = max(self._dirty_to, row + 1)
 
     def text_lines(self) -> tuple[str, ...]:
         """返回按字符拼接后的纯文本行，便于测试与诊断。"""
@@ -168,6 +205,9 @@ class TerminalScreen:
         self._cursor_col = 0
         self._style = DEFAULT_STYLE
         self._pending = ""
+        self._dropped = 0
+        self._dirty_from = 0
+        self._dirty_to = len(self._rows)
 
     def feed(self, text: str) -> None:
         """解析一段接收文本，未完成的转义序列留待下次拼接。"""
@@ -229,6 +269,7 @@ class TerminalScreen:
         for position in range(len(row) - 1, -1, -1):
             if not row[position].trailing:
                 row[position] = replace(row[position], char=row[position].char + char)
+                self._touch(self._cursor_row)
                 return
 
     def _put(self, row: int, column: int, cell: TerminalCell) -> None:
@@ -237,6 +278,7 @@ class TerminalScreen:
         while len(line) <= column:
             line.append(TerminalCell())
         line[column] = cell
+        self._touch(row)
 
     def _ensure_row(self, row: int) -> None:
         while len(self._rows) <= row:
@@ -256,7 +298,12 @@ class TerminalScreen:
         if excess <= 0:
             return
         del self._rows[:excess]
+        self._dropped += excess
         self._cursor_row = max(0, self._cursor_row - excess)
+        if self._dirty_from is not None:
+            # 行索引整体前移；被淘汰区间里的脏行并入区间头。
+            self._dirty_from = max(0, self._dirty_from - excess)
+            self._dirty_to = max(0, self._dirty_to - excess)
 
     def _consume_escape(self, buffer: str, index: int) -> int | None:
         if index + 1 >= len(buffer):
@@ -345,6 +392,7 @@ class TerminalScreen:
         elif mode == _ERASE_TO_START:
             for row in range(self._cursor_row):
                 self._rows[row] = []
+                self._touch(row)
             self._clear_cells(self._cursor_row, 0, self._cursor_col + 1)
         elif mode == _ERASE_TO_END:
             self._clear_cells(self._cursor_row, self._cursor_col, self._max_columns)
@@ -364,3 +412,4 @@ class TerminalScreen:
         for column in range(max(start, 0), min(end, self._max_columns)):
             if column < len(line):
                 line[column] = TerminalCell()
+        self._touch(row)

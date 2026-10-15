@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PySide6.QtCore import QObject, QSignalBlocker, Signal
+from PySide6.QtCore import QElapsedTimer, QObject, QSignalBlocker, QTimer, Signal
 from PySide6.QtGui import QAction, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -26,6 +26,9 @@ from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX, data_colors, data_fo
 # 内存缓冲仍保留 100,000 条，界面只渲染最近若干条，避免整表重插阻塞主线程。
 _MAX_RENDERED_RECORDS = 2000
 _DOCUMENT_BLOCK_LIMIT = _MAX_RENDERED_RECORDS + 3
+
+# 高频数据流的渲染合并窗口：空闲后的第一条立即显示，其余在同一窗口内合并成一帧。
+_FLUSH_INTERVAL_MS = 30
 
 # “接收”标题与格式下拉框之间的固定间隔，参与标题行溢出宽度估算。
 _HEADING_GAP = 12
@@ -178,6 +181,11 @@ class ReceivePanel(QWidget):
         self._terminal_mode = False
         self._screen: TerminalScreen | None = None
         self._loading = False
+        self._pending_records: list[LogRecord] = []
+        self._last_flush: QElapsedTimer | None = None
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.timeout.connect(self._flush_pending)
         self._build_ui()
         self._connect_changes()
         if preferences is not None:
@@ -362,30 +370,68 @@ class ReceivePanel(QWidget):
         return self.mode_combo.currentData()  # type: ignore[return-value]
 
     def append_record(self, record: LogRecord) -> None:
-        """在未暂停时追加一条记录。"""
+        """在未暂停时追加一条记录；高频到达时按合并窗口批量渲染。"""
         if self._terminal_mode:
             if record.direction == "rx":
                 screen = self._terminal_screen()
                 screen.feed(record.text)
                 if not self._paused:
-                    self.output.render_screen(screen)
+                    self._schedule_flush()
             return
         if self._paused:
             return
         if not self._should_show(record):
             return
+        self._pending_records.append(record)
+        self._schedule_flush()
+
+    def _schedule_flush(self) -> None:
+        """空闲后的第一条立即渲染，其余记录在合并窗口内攒成一帧。"""
+        elapsed = self._last_flush.elapsed() if self._last_flush is not None else None
+        if elapsed is None or elapsed >= _FLUSH_INTERVAL_MS:
+            self._flush_pending()
+            return
+        if not self._flush_timer.isActive():
+            self._flush_timer.start(_FLUSH_INTERVAL_MS - elapsed)
+
+    def _flush_pending(self) -> None:
+        """渲染自上一帧以来到达的记录。"""
+        self._flush_timer.stop()
+        if self._last_flush is None:
+            self._last_flush = QElapsedTimer()
+            self._last_flush.start()
+        else:
+            self._last_flush.restart()
+        if self._terminal_mode:
+            if not self._paused:
+                self._render_terminal_screen()
+            return
+        records, self._pending_records = self._pending_records, []
+        if not records:
+            return
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
-        self._insert_record(record)
+        self.output.append_lines([self._record_segments(record) for record in records])
+
+    def _discard_pending(self) -> None:
+        """丢弃尚未渲染的记录；调用方随后必须自行重绘或清屏。"""
+        self._flush_timer.stop()
+        self._pending_records.clear()
+
+    def _render_terminal_screen(self, *, full: bool = False) -> None:
+        """渲染终端画面；整屏重建只用于主题、高亮或过滤变化。"""
+        self.output.set_autoscroll(self.autoscroll_check.isChecked())
+        self.output.render_screen(self._terminal_screen(), full=full)
 
     def render_records(self) -> None:
         """重新渲染最近的记录，超出渲染上限的部分用提示行说明。"""
         if self._paused:
             return
+        self._discard_pending()
         records = self._records_provider()
         hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         if self._terminal_mode:
-            self.output.render_screen(self._terminal_screen())
+            self._render_terminal_screen(full=True)
             return
         self.output.begin_batch_update()
         if hidden:
@@ -472,7 +518,9 @@ class ReceivePanel(QWidget):
     def _pause_changed(self, paused: bool) -> None:
         self._paused = paused
         self.pause_button.setText("继续" if paused else "暂停")
-        if not paused:
+        if paused:
+            self._discard_pending()
+        else:
             self.render_records()
 
     def _clear(self) -> None:
@@ -487,6 +535,7 @@ class ReceivePanel(QWidget):
         ):
             return
         self._clear_callback()
+        self._discard_pending()
         self.output.clear_content()
         if self._terminal_mode:
             self._screen = None
