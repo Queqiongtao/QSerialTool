@@ -218,12 +218,22 @@ class SessionTab(QWidget):
         self.connection_panel.config_changed.connect(self._refresh_status)
         self.receive_panel.set_line_submit_handler(self.send_panel.send_content)
         self.receive_panel.set_history_provider(lambda: self.send_panel.history)
+        self.receive_panel.set_raw_send_handler(self._send_raw_bytes)
         self.receive_panel.output.copied.connect(self._show_copy_hint)
         self.receive_panel.preferences_changed.connect(self.preferences_changed.emit)
         self.send_panel.preferences_changed.connect(self._sync_terminal_send_menu)
         self.send_panel.preferences_changed.connect(self.preferences_changed.emit)
         self.log_panel.preferences_changed.connect(self.preferences_changed.emit)
         self._sync_terminal_send_menu()
+
+    def _send_raw_bytes(self, data: bytes) -> bool:
+        """把终端按键序列原样发送给设备。"""
+        try:
+            self.controller.send(data)
+        except DomainError as exc:
+            QMessageBox.warning(self, "发送失败", exc.message)
+            return False
+        return True
 
     def set_data_font_size(self, size: int) -> None:
         """按全局字号同步接收区与发送编辑框字体。"""

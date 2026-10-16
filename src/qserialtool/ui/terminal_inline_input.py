@@ -1,4 +1,4 @@
-"""终端模式下的单行草稿输入：光标约束、历史、提交与粘贴。"""
+"""终端模式下的单行草稿输入：光标约束、历史、提交、粘贴与方向键透传。"""
 
 from collections.abc import Callable
 
@@ -11,7 +11,8 @@ class TerminalInlineInput:
     """维护光标处的可编辑单行草稿，并把编辑范围限制在草稿内。
 
     ``after_edit`` 在草稿写入文档后调用（宿主用于滚动视图）；``is_ready``
-    返回宿主是否已渲染过至少一帧画面，未就绪时只记录草稿文本。
+    返回宿主是否已渲染过至少一帧画面，未就绪时只记录草稿文本。普通 ``↑``/``↓``
+    经 ``raw_send`` 原样透传给设备，``Shift+↑``/``Shift+↓`` 召回草稿历史。
     """
 
     def __init__(
@@ -31,6 +32,7 @@ class TerminalInlineInput:
         self._history_index: int | None = None
         self._history_provider: Callable[[], tuple[str, ...]] = lambda: ()
         self._submit_handler: Callable[[str], bool] | None = None
+        self._raw_send: Callable[[bytes], bool] | None = None
 
     @property
     def draft(self) -> str:
@@ -55,6 +57,10 @@ class TerminalInlineInput:
     def set_history_provider(self, provider: Callable[[], tuple[str, ...]]) -> None:
         """设置发送历史读取函数。"""
         self._history_provider = provider
+
+    def set_raw_send_handler(self, handler: Callable[[bytes], bool]) -> None:
+        """设置原始字节发送回调，用于方向键等按键透传。"""
+        self._raw_send = handler
 
     def set_draft(self, text: str) -> None:
         """替换草稿为单行文本（供历史菜单回填）。"""
@@ -132,7 +138,10 @@ class TerminalInlineInput:
             self.submit()
             handled = True
         elif event.key() in {Qt.Key.Key_Up, Qt.Key.Key_Down}:
-            self._history_move(older=event.key() == Qt.Key.Key_Up)
+            if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
+                self._history_move(older=event.key() == Qt.Key.Key_Up)
+            else:
+                self._send_arrow_key(up=event.key() == Qt.Key.Key_Up)
             handled = True
         elif event.key() == Qt.Key.Key_Escape:
             self._history_index = None
@@ -230,6 +239,12 @@ class TerminalInlineInput:
             self._history_index = min(len(history), self._history_index + 1)
         value = history[self._history_index] if self._history_index < len(history) else ""
         self.update_in_document(self._single_line(value))
+
+    def _send_arrow_key(self, *, up: bool) -> None:
+        """把方向键按 ANSI 序列原样透传给设备。"""
+        handler = self._raw_send
+        if handler is not None:
+            handler(b"\x1b[A" if up else b"\x1b[B")
 
     @staticmethod
     def _single_line(text: str) -> str:

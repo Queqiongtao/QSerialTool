@@ -74,6 +74,10 @@ class TerminalOutput(QPlainTextEdit):
         """设置发送历史读取函数。"""
         self._input.set_history_provider(provider)
 
+    def set_raw_send_handler(self, handler: Callable[[bytes], bool]) -> None:
+        """设置原始字节发送回调，用于终端方向键等按键透传。"""
+        self._input.set_raw_send_handler(handler)
+
     def set_autoscroll(self, enabled: bool) -> None:
         """设置新记录到达时是否自动滚动。"""
         self._autoscroll = enabled

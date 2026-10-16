@@ -32,14 +32,16 @@ def test_terminal_inline_input_sends_lines_and_recalls_history(qtbot: object) ->
         qtbot.waitUntil(lambda: transport.writes[-1] == b"second\n", timeout=2000)
         assert output.toPlainText() == ""
 
-        QTest.keyClick(output, Qt.Key.Key_Up)
+        QTest.keyClick(output, Qt.Key.Key_Up, Qt.KeyboardModifier.ShiftModifier)
         assert output.draft == "second"
-        QTest.keyClick(output, Qt.Key.Key_Up)
+        QTest.keyClick(output, Qt.Key.Key_Up, Qt.KeyboardModifier.ShiftModifier)
         assert output.draft == "first"
-        QTest.keyClick(output, Qt.Key.Key_Down)
+        QTest.keyClick(output, Qt.Key.Key_Down, Qt.KeyboardModifier.ShiftModifier)
         assert output.draft == "second"
-        QTest.keyClick(output, Qt.Key.Key_Down)
+        QTest.keyClick(output, Qt.Key.Key_Down, Qt.KeyboardModifier.ShiftModifier)
         assert output.draft == ""
+        # Shift+方向键只召回本地历史，不产生透传写入。
+        assert transport.writes == [b"first\n", b"second\n"]
 
         history_action = tab.send_settings_button.history_menu.actions()[0]
         assert history_action.text() == "second"
@@ -245,6 +247,31 @@ def test_terminal_paste_lands_in_draft_not_log_text(qtbot: object) -> None:
         qtbot.keyClick(output, Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
 
         assert output.toPlainText() == "hello worldpasted"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_arrows_pass_through_to_device(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        output.setFocus()
+
+        QTest.keyClick(output, Qt.Key.Key_Up)
+        qtbot.waitUntil(lambda: transport.writes == [b"\x1b[A"], timeout=2000)
+
+        QTest.keyClick(output, Qt.Key.Key_Down)
+        qtbot.waitUntil(lambda: transport.writes == [b"\x1b[A", b"\x1b[B"], timeout=2000)
+
+        # 透传只发送方向键序列，不改变草稿与接收区内容。
+        assert output.draft == ""
+        assert output.toPlainText() == ""
     finally:
         tab.controller.close(force=True)
         window.close()

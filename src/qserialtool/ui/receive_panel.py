@@ -176,6 +176,10 @@ class ReceivePanel(QWidget):
         """设置终端输入历史提供者。"""
         self.output.set_history_provider(provider)
 
+    def set_raw_send_handler(self, handler: Callable[[bytes], bool]) -> None:
+        """设置终端按键透传的原始字节发送回调。"""
+        self.output.set_raw_send_handler(handler)
+
     def set_terminal_draft(self, text: str) -> None:
         """替换终端输入草稿。"""
         self.output.set_draft(text)
