@@ -1,8 +1,11 @@
-"""测试终端视图的增量渲染、滚动窗口与批量追加。"""
+"""测试终端视图的增量渲染、滚动窗口、批量追加与光标闪烁。"""
 
 import re
 from datetime import datetime, timezone
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPalette, QTextCursor
+from PySide6.QtTest import QTest
 from tests.fixtures.ui_helpers import fragment_formats
 
 from qserialtool.domain import TerminalScreen
@@ -174,3 +177,67 @@ def test_timestamps_match_between_incremental_and_full_rebuild(qtbot: object) ->
     assert len(lines) == 3
     assert all(_TIMESTAMP_PATTERN.match(line) for line in lines)
     assert [line.split("] ", 1)[1] for line in lines] == ["one", "two", "three"]
+
+
+def test_block_cursor_blinks_only_when_focused_and_resets_on_input(qtbot: object) -> None:
+    """光标仅在聚焦时闪烁；失焦与输入瞬间保持实心可见，隐藏后停表。"""
+    output = _output(qtbot)
+    output.show()
+    qtbot.waitExposed(output)
+    screen = TerminalScreen()
+    screen.feed("ready")
+    output.render_screen(screen)
+
+    assert output._cursor_visible
+    assert not output._cursor_blink_timer.isActive()
+
+    output.setFocus(Qt.FocusReason.OtherFocusReason)
+    qtbot.waitUntil(output.hasFocus, timeout=2000)
+    assert output._cursor_blink_timer.isActive()
+
+    output._blink_cursor()
+    assert not output._cursor_visible
+    output._blink_cursor()
+    assert output._cursor_visible
+
+    output._blink_cursor()
+    assert not output._cursor_visible
+    QTest.keyClicks(output, "x")
+    assert output._cursor_visible
+    assert output.draft == "x"
+
+    output.hide()
+    output._blink_cursor()
+    assert not output._cursor_blink_timer.isActive()
+
+    output.set_terminal_mode(False)
+    assert not output._cursor_blink_timer.isActive()
+
+
+def test_block_cursor_paint_toggles_with_visibility(qtbot: object) -> None:
+    """光标可见时草稿末尾绘出实心块，隐藏时该像素回到底色。"""
+    output = _output(qtbot)
+    output.resize(300, 120)
+    output.show()
+    qtbot.waitExposed(output)
+    screen = TerminalScreen()
+    screen.feed("ab")
+    output.render_screen(screen)
+    output.setFocus(Qt.FocusReason.OtherFocusReason)
+    qtbot.waitUntil(output.hasFocus, timeout=2000)
+
+    def cursor_pixel() -> str:
+        caret = QTextCursor(output.document())
+        caret.setPosition(output._input.bounds()[1])
+        rect = output.cursorRect(caret)
+        width = max(output.fontMetrics().horizontalAdvance(" "), 1)
+        image = output.viewport().grab().toImage()
+        return image.pixelColor(rect.left() + width // 2, rect.top() + rect.height() // 2).name()
+
+    text_color = output.palette().color(QPalette.ColorRole.Text).name()
+    output._touch_cursor()
+    assert cursor_pixel() == text_color
+
+    output._blink_cursor()
+    assert not output._cursor_visible
+    assert cursor_pixel() != text_color

@@ -2,14 +2,17 @@
 
 from collections.abc import Callable, Sequence
 
-from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtCore import QRect, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QContextMenuEvent,
+    QFocusEvent,
+    QHideEvent,
     QKeyEvent,
     QMouseEvent,
     QPainter,
     QPaintEvent,
     QPalette,
+    QShowEvent,
     QTextCursor,
     QTextOption,
 )
@@ -19,6 +22,9 @@ from qserialtool.domain import TerminalScreen
 from qserialtool.ui.terminal_inline_input import TerminalInlineInput
 from qserialtool.ui.terminal_render_format import text_format
 from qserialtool.ui.terminal_screen_renderer import TerminalScreenRenderer
+
+# 块状光标的闪烁周期（毫秒）；与 Windows 控制台、xterm 默认的 530ms 一致。
+_CURSOR_BLINK_MS = 530
 
 
 class TerminalOutput(QPlainTextEdit):
@@ -33,15 +39,19 @@ class TerminalOutput(QPlainTextEdit):
         self._batch_update = False
         self._scrolling = False
         self._mouse_selecting = False
+        self._cursor_visible = True
+        self._cursor_blink_timer = QTimer(self)
+        self._cursor_blink_timer.setInterval(_CURSOR_BLINK_MS)
+        self._cursor_blink_timer.timeout.connect(self._blink_cursor)
         self._input = TerminalInlineInput(
             self,
-            after_edit=self._scroll_after_update,
+            after_edit=self._after_terminal_update,
             is_ready=lambda: self._renderer.has_screen,
         )
         self._renderer = TerminalScreenRenderer(
             self,
             self._input,
-            after_update=self._scroll_after_update,
+            after_update=self._after_terminal_update,
             should_defer=self._should_defer_render,
         )
         self.setReadOnly(True)
@@ -65,6 +75,7 @@ class TerminalOutput(QPlainTextEdit):
         self._input.set_enabled(enabled)
         super().clear()
         self.setReadOnly(not enabled)
+        self._sync_cursor_blink()
 
     def set_submit_handler(self, handler: Callable[[str], bool]) -> None:
         """设置行提交回调；返回 False 时保留输入草稿。"""
@@ -127,6 +138,7 @@ class TerminalOutput(QPlainTextEdit):
         self._renderer.invalidate()
         super().clear()
         self._input.reset_anchor()
+        self._sync_cursor_blink()
 
     def append_text(self, text: str, color: str) -> None:
         """按单色追加一行文本，供提示行等简单调用方使用。"""
@@ -166,9 +178,9 @@ class TerminalOutput(QPlainTextEdit):
         self._renderer.render(screen, full=full)
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        """在草稿末尾绘制块状光标，避免污染正文内容。"""
+        """在草稿末尾绘制闪烁的块状光标，避免污染正文内容。"""
         super().paintEvent(event)
-        if not self._terminal_mode or not self._renderer.has_screen:
+        if not self._terminal_mode or not self._renderer.has_screen or not self._cursor_visible:
             return
         caret = QTextCursor(self.document())
         caret.setPosition(self._input.bounds()[1])
@@ -182,6 +194,42 @@ class TerminalOutput(QPlainTextEdit):
 
     def _should_defer_render(self) -> bool:
         return self._mouse_selecting or self.textCursor().hasSelection()
+
+    def _after_terminal_update(self) -> None:
+        """输入或渲染完成后重置光标闪烁相位，并恢复自动滚动。"""
+        self._touch_cursor()
+        self._scroll_after_update()
+
+    def _touch_cursor(self) -> None:
+        """让光标立即显示并重新计时，供输入、渲染、聚焦与失焦时调用。"""
+        if not self._cursor_visible:
+            self._cursor_visible = True
+            self.viewport().update()
+        self._sync_cursor_blink()
+
+    def _sync_cursor_blink(self) -> None:
+        """按终端状态、画面模型、可见性与焦点启停闪烁定时器。"""
+        if self._cursor_blink_active():
+            if not self._cursor_blink_timer.isActive():
+                self._cursor_blink_timer.start()
+        else:
+            self._cursor_blink_timer.stop()
+
+    def _cursor_blink_active(self) -> bool:
+        return (
+            self._terminal_mode
+            and self._renderer.has_screen
+            and self.isVisible()
+            and self.hasFocus()
+        )
+
+    def _blink_cursor(self) -> None:
+        """闪烁定时器回调：翻转光标可见性并重绘视口；条件不再满足时自停。"""
+        if not self._cursor_blink_active():
+            self._cursor_blink_timer.stop()
+            return
+        self._cursor_visible = not self._cursor_visible
+        self.viewport().update()
 
     def _scroll_after_update(self) -> None:
         """自动滚动到末尾；存在选中内容、鼠标拖选或正在滚动时保持原位。"""
@@ -202,6 +250,24 @@ class TerminalOutput(QPlainTextEdit):
             return
         if self._renderer.flush_deferred():
             self._scroll_after_update()
+
+    def focusInEvent(self, event: QFocusEvent) -> None:
+        super().focusInEvent(event)
+        self._touch_cursor()
+
+    def focusOutEvent(self, event: QFocusEvent) -> None:
+        """失焦后停止闪烁但保持实心光标，输入位置提示不消失。"""
+        super().focusOutEvent(event)
+        self._touch_cursor()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._sync_cursor_blink()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        """隐藏（切换标签或视图）后停止闪烁，避免后台空转。"""
+        super().hideEvent(event)
+        self._sync_cursor_blink()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """左键按下时冻结渲染路径，保住点击位置设置的选区锚点。"""
@@ -240,10 +306,12 @@ class TerminalOutput(QPlainTextEdit):
             super().keyPressEvent(event)
             return
         if self._input.handle_command(event) or self._input.guard_edit(event):
+            self._touch_cursor()
             return
         self._input.constrain_cursor()
         super().keyPressEvent(event)
         self._input.sync_from_document()
+        self._touch_cursor()
 
     def insertFromMimeData(self, source: object) -> None:
         """粘贴单行文本；多行文本按非空行依次发送。"""
@@ -260,3 +328,4 @@ class TerminalOutput(QPlainTextEdit):
         self._input.constrain_cursor()
         super().inputMethodEvent(event)
         self._input.sync_from_document()
+        self._touch_cursor()
