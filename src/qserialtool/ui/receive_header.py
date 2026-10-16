@@ -138,7 +138,11 @@ class HeaderOverflow(QObject):
         """为折叠控件生成等价菜单动作，并与原控件双向同步。"""
         action = QAction(widget.text(), self)
         action.setToolTip(widget.toolTip())
-        if isinstance(widget, QAbstractButton) and widget.isCheckable():
+        if not isinstance(widget, QAbstractButton):
+            action.triggered.connect(widget.click)
+            return action
+        action.setIcon(widget.icon())
+        if widget.isCheckable():
             action.setCheckable(True)
             action.setChecked(widget.isChecked())
             action.toggled.connect(widget.setChecked)

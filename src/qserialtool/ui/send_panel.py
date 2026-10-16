@@ -27,6 +27,7 @@ from qserialtool.domain import (
     encode_text,
     parse_hex,
 )
+from qserialtool.ui.icons import set_action_icon, svg_icon
 from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX, data_font
 
 _NEWLINES: tuple[tuple[str, LineEnding], ...] = (
@@ -91,6 +92,7 @@ class SendPanel(QWidget):
         self.newline_combo.setCurrentIndex(self.newline_combo.findData(DEFAULT_LINE_ENDING))
         self.send_button = QPushButton("发送")
         self.send_button.setProperty("primary", True)
+        set_action_icon(self.send_button, "send")
         self.send_button.setToolTip("Ctrl+Enter 发送；↑/↓ 浏览发送历史")
         self.send_button.clicked.connect(self.send)
         for widget in (self.mode_combo, self.newline_combo, self.send_button):
@@ -123,6 +125,7 @@ class SendPanel(QWidget):
         self.interval_spin.setSuffix(" ms")
         self.periodic_button = QPushButton("开始周期")
         self.periodic_button.setCheckable(True)
+        set_action_icon(self.periodic_button, "timer")
         options.addWidget(QLabel("历史"))
         options.addWidget(self.history_combo, 1)
         options.addWidget(QLabel("间隔"))
@@ -200,6 +203,7 @@ class SendPanel(QWidget):
         """根据连接状态启用发送控件。"""
         self._connected = connected
         self.send_button.setEnabled(connected)
+        self.send_button.setIcon(svg_icon("send" if connected else "send-disabled"))
         self.periodic_button.setEnabled(connected)
         if not connected and self.periodic_button.isChecked():
             self.periodic_button.setChecked(False)
@@ -316,9 +320,11 @@ class SendPanel(QWidget):
                 return
             self._periodic_timer.start(self.interval_spin.value())
             self.periodic_button.setText("停止周期")
+            self.periodic_button.setIcon(svg_icon("stop"))
         else:
             self._periodic_timer.stop()
             self.periodic_button.setText("开始周期")
+            self.periodic_button.setIcon(svg_icon("timer"))
 
     def _periodic_tick(self) -> None:
         if not self._send_current(remember=False):

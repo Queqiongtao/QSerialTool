@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMessageBox,
     QPushButton,
-    QStyle,
     QToolButton,
     QWidget,
 )
@@ -26,6 +25,7 @@ from qserialtool.domain import (
     SessionState,
     ValidationError,
 )
+from qserialtool.ui.icons import set_action_icon, svg_icon
 from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX
 
 _BAUDRATES = ("9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600")
@@ -103,9 +103,7 @@ class ConnectionPanel(QGroupBox):
         self.port_combo.setEditable(True)
         self.port_combo.setMinimumWidth(120)
         self.refresh_button = QToolButton()
-        self.refresh_button.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
+        set_action_icon(self.refresh_button, "refresh")
         self.refresh_button.setToolTip("刷新端口列表")
         self.refresh_button.setFixedSize(CONTROL_HEIGHT_PX, CONTROL_HEIGHT_PX)
         self.refresh_button.clicked.connect(self._refresh_ports)
@@ -131,6 +129,7 @@ class ConnectionPanel(QGroupBox):
         self.rts_check = QCheckBox("RTS")
         self.connect_button = QPushButton("连接")
         self.connect_button.setProperty("primary", True)
+        set_action_icon(self.connect_button, "plug")
         self.connect_button.clicked.connect(self._toggle_connection)
         self.dtr_check.toggled.connect(self._line_state_changed)
         self.rts_check.toggled.connect(self._line_state_changed)
@@ -164,15 +163,17 @@ class ConnectionPanel(QGroupBox):
                     self.port_combo.setEditText(snapshot.config.port)
             self._set_editable(snapshot.state in {SessionState.DISCONNECTED, SessionState.ERROR})
             self.connect_button.setEnabled(snapshot.state is not SessionState.DISCONNECTING)
-            button_labels = {
-                SessionState.DISCONNECTED: "连接",
-                SessionState.CONNECTING: "正在连接",
-                SessionState.CONNECTED: "断开",
-                SessionState.DISCONNECTING: "正在断开",
-                SessionState.ERROR: "重试",
-                SessionState.CLOSED: "已关闭",
+            button_states = {
+                SessionState.DISCONNECTED: ("连接", "plug"),
+                SessionState.CONNECTING: ("正在连接", "plug"),
+                SessionState.CONNECTED: ("断开", "unplug"),
+                SessionState.DISCONNECTING: ("正在断开", "unplug-disabled"),
+                SessionState.ERROR: ("重试", "plug"),
+                SessionState.CLOSED: ("已关闭", "plug"),
             }
-            self.connect_button.setText(button_labels[snapshot.state])
+            label, icon = button_states[snapshot.state]
+            self.connect_button.setText(label)
+            self.connect_button.setIcon(svg_icon(icon))
             self._update_port_tooltip()
         finally:
             self._updating = False

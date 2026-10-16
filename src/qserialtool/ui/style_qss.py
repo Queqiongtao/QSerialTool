@@ -67,6 +67,15 @@ QTabBar::tab:selected {{
     background: {c.surface};
     border-bottom: 2px solid {c.accent};
 }}
+/* 标签关闭按钮：中性灰，悬停变强调蓝提示可点击。 */
+QTabBar::close-button {{
+    image: url("{assets}/close.svg");
+    width: 12px;
+    height: 12px;
+}}
+QTabBar::close-button:hover {{
+    image: url("{assets}/close-hover.svg");
+}}
 /* 侧栏面板化：整列浅色底 + 右侧分隔线，卡片浮在面板上。 */
 QScrollArea#sessionSidebar {{
     background: {c.subtle};

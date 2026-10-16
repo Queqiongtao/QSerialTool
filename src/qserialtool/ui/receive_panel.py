@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences, TerminalScreen
+from qserialtool.ui.icons import set_action_icon, svg_icon
 from qserialtool.ui.receive_format import record_segments, should_show
 from qserialtool.ui.receive_header import FOLD_RANKS, HeaderOverflow, assemble_header_row
 from qserialtool.ui.terminal_output import TerminalOutput
@@ -87,7 +88,9 @@ class ReceivePanel(QWidget):
         self.tx_check.setChecked(True)
         self.pause_button = QPushButton("暂停")
         self.pause_button.setCheckable(True)
+        set_action_icon(self.pause_button, "pause")
         self.clear_button = QPushButton("清屏")
+        set_action_icon(self.clear_button, "eraser")
         self.autoscroll_check = QCheckBox("自动滚动")
         self.autoscroll_check.setChecked(True)
         self.highlight_check = QCheckBox("高亮")
@@ -402,6 +405,7 @@ class ReceivePanel(QWidget):
     def _pause_changed(self, paused: bool) -> None:
         self._paused = paused
         self.pause_button.setText("继续" if paused else "暂停")
+        self.pause_button.setIcon(svg_icon("play" if paused else "pause"))
         if paused:
             self._discard_pending()
         else:

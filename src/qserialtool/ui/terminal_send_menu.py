@@ -1,10 +1,11 @@
 """终端视图的“发送设置”菜单按钮。"""
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QMenu, QToolButton, QWidget
 
 from qserialtool.domain import DisplayMode, LineEnding
+from qserialtool.ui.icons import set_action_icon
 
 
 class TerminalSendMenu(QToolButton):
@@ -21,6 +22,9 @@ class TerminalSendMenu(QToolButton):
         super().__init__(parent)
         self.setText("发送设置")
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        set_action_icon(self, "sliders")
+        # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
+        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setToolTip("终端发送设置：格式、换行和历史")
         self.setVisible(False)
 

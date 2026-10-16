@@ -1,10 +1,10 @@
 """标签栏：把“+”新建按钮放在最后一个标签右侧，类似 Windows Terminal。"""
 
 from PySide6.QtCore import QSize, Signal
-from PySide6.QtGui import QIcon, QResizeEvent, QShowEvent
+from PySide6.QtGui import QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QTabBar, QToolButton, QWidget
 
-from qserialtool.ui.style_sheet import assets_dir
+from qserialtool.ui.icons import svg_icon
 from qserialtool.ui.theme_manager import HEADER_BUTTON_SIZE_PX
 
 # “+”与最后一个标签之间的水平间距（像素）。
@@ -31,7 +31,7 @@ class SessionTabBar(QTabBar):
         # objectName 供 style_qss.py 的实心强调色规则选中；白色图标位于
         # 两侧主题同值的 accent_fill 底上，不再受样式表重刷字体的影响。
         self.new_tab_button.setObjectName("newTabButton")
-        self.new_tab_button.setIcon(QIcon(str(assets_dir() / "plus.svg")))
+        self.new_tab_button.setIcon(svg_icon("plus"))
         self.new_tab_button.setIconSize(QSize(_BUTTON_ICON_PX, _BUTTON_ICON_PX))
         self.new_tab_button.setFixedSize(HEADER_BUTTON_SIZE_PX, HEADER_BUTTON_SIZE_PX)
         self.new_tab_button.setAutoRaise(True)

@@ -28,6 +28,7 @@ from qserialtool.domain import (
 )
 from qserialtool.ui.connection_panel import ConnectionPanel
 from qserialtool.ui.font_zoom import FontZoomFilter
+from qserialtool.ui.icons import set_action_icon
 from qserialtool.ui.log_panel import LogPanel
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.receive_panel import ReceivePanel
@@ -117,6 +118,9 @@ class SessionTab(QWidget):
     def _build_sidebar_toggle(self) -> None:
         self.sidebar_toggle_button = QToolButton()
         self.sidebar_toggle_button.setText("收起设置")
+        set_action_icon(self.sidebar_toggle_button, "sidebar")
+        # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
+        self.sidebar_toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.sidebar_toggle_button.setCheckable(True)
         self.sidebar_toggle_button.setAutoRaise(True)
         self.sidebar_toggle_button.setToolTip("显示或隐藏左侧设置面板")
