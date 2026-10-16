@@ -10,7 +10,11 @@ from tests.fixtures.ui_helpers import (
     build_window,
     connect_session,
     current_tab,
+    cursor_point,
     fragment_styles,
+    mouse_drag,
+    mouse_press,
+    mouse_release,
 )
 
 from qserialtool.domain import LogRecord
@@ -211,6 +215,40 @@ def test_split_selection_survives_incoming_data(qtbot: object) -> None:
         output.setTextCursor(cleared)
 
         assert output.textCursor().position() == output.document().characterCount() - 1
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_split_drag_selection_anchor_survives_incoming_data(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        output = tab.receive_panel.output
+        transport.push_read(b"hello world")
+        qtbot.waitUntil(lambda: "hello world" in output.toPlainText(), timeout=2000)
+
+        text = output.toPlainText()
+        start = text.index("hello")
+        end = start + len("hello")
+
+        # 按下后数据帧到达：光标不能离开点击处，否则拖选锚点会漂到文档末尾。
+        mouse_press(output, cursor_point(output, start))
+        transport.push_read(b"second")
+        qtbot.waitUntil(lambda: "second" in output.toPlainText(), timeout=2000)
+
+        assert output.textCursor().hasSelection() is False
+        assert output.textCursor().position() == start
+
+        mouse_drag(output, cursor_point(output, end))
+        mouse_release(output, cursor_point(output, end))
+
+        cursor = output.textCursor()
+        assert cursor.selectionStart() == start
+        assert cursor.selectedText() == "hello"
     finally:
         tab.controller.close(force=True)
         window.close()

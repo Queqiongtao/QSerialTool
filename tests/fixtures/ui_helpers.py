@@ -1,7 +1,9 @@
 """主窗口测试的装配助手与文档片段检查工具。"""
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QFont, QMouseEvent, QTextCursor
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
 from qserialtool.application import SessionManager
 from qserialtool.domain import PortInfo, SessionState
@@ -138,3 +140,38 @@ def fragment_styles(output: TerminalOutput) -> list[tuple[str, str, bool]]:
             iterator += 1
         block = block.next()
     return styles
+
+
+def cursor_point(output: TerminalOutput, position: int) -> QPoint:
+    """返回文档字符位置在视口中的中心点，供模拟鼠标交互使用。"""
+    cursor = QTextCursor(output.document())
+    cursor.setPosition(position)
+    return output.cursorRect(cursor).center()
+
+
+def mouse_press(output: TerminalOutput, pos: QPoint) -> None:
+    """在接收区模拟左键按下。"""
+    QTest.mousePress(output.viewport(), Qt.MouseButton.LeftButton, pos=pos)
+
+
+def mouse_drag(output: TerminalOutput, pos: QPoint) -> None:
+    """模拟按住左键拖到 pos。
+
+    ``QTest.mouseMove`` 携带的按键状态为空，文本控件不会据此扩展选区，
+    因此自建带左键的移动事件。
+    """
+    viewport = output.viewport()
+    event = QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(pos),
+        QPointF(viewport.mapToGlobal(pos)),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(viewport, event)
+
+
+def mouse_release(output: TerminalOutput, pos: QPoint) -> None:
+    """在接收区模拟左键释放。"""
+    QTest.mouseRelease(output.viewport(), Qt.MouseButton.LeftButton, pos=pos)
