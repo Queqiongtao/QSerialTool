@@ -45,6 +45,13 @@ from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
 from qserialtool.ui.tab_bar import SessionTabBar
 from qserialtool.ui.theme_manager import apply_theme
+from qserialtool.ui.window_chrome import (
+    WindowButtons,
+    enable_custom_title_bar,
+    handle_native_event,
+    is_windows,
+    uses_native_chrome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +100,11 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(app_icon())
         self.resize(1180, 760)
         self.setMinimumSize(900, 600)
+        self.window_buttons: WindowButtons | None = None
+        if is_windows():
+            self.window_buttons = WindowButtons(self)
+        if uses_native_chrome():
+            enable_custom_title_bar(self)
         self._build_actions()
         self._restore_or_create_sessions(initial_config)
 
@@ -102,6 +114,7 @@ class MainWindow(QMainWindow):
             self.tabs,
             theme=self._theme,
             data_font_size=self._data_font_size,
+            window_buttons=self.window_buttons,
             callbacks=MainActionCallbacks(
                 new_session=self._new_session,
                 close_current=lambda: self._close_tab(self.tabs.currentIndex()),
@@ -225,6 +238,13 @@ class MainWindow(QMainWindow):
                     self._show_tab_menu(index, event.globalPos())
                     return True
         return super().eventFilter(watched, event)
+
+    def nativeEvent(self, event_type: QByteArray, message: int) -> object:
+        """转发 Windows 原生消息，实现自定义标题行的拖动与最大化铺满。"""
+        result = handle_native_event(self, bytes(event_type), message)
+        if result is not None:
+            return result
+        return super().nativeEvent(event_type, message)
 
     def _show_tab_menu(self, index: int, global_pos: QPoint) -> None:
         """在指定位置弹出标签菜单（独立方法便于测试替换）。"""

@@ -32,6 +32,11 @@ _ACTION_ICONS = (
     "close",
     "close-hover",
     "plus",
+    "window-minimize",
+    "window-maximize",
+    "window-restore",
+    "window-close",
+    "window-close-active",
 )
 
 

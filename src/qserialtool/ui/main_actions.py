@@ -21,6 +21,7 @@ from qserialtool.ui.theme_manager import (
     HEADER_BUTTON_SIZE_PX,
     data_font,
 )
+from qserialtool.ui.window_chrome import WindowButtons
 
 # “主题”子菜单的显示标签与配置值。
 THEMES: tuple[tuple[str, Theme], ...] = (
@@ -57,6 +58,7 @@ class MainActions:
 
     main_menu: QMenu
     menu_button: QToolButton
+    window_buttons: WindowButtons | None
     header_tools: QWidget
     theme_menu: QMenu
     theme_actions: tuple[QAction, ...]
@@ -81,13 +83,14 @@ class _FontActions:
     reset: QAction
 
 
-def build_main_actions(
+def build_main_actions(  # noqa: PLR0913
     window: QMainWindow,
     tabs: QTabWidget,
     *,
     theme: Theme,
     data_font_size: int,
     callbacks: MainActionCallbacks,
+    window_buttons: WindowButtons | None = None,
 ) -> MainActions:
     """构建“☰”菜单（含主题/字号可勾选子菜单）和标签栏角落控件。
 
@@ -142,7 +145,9 @@ def build_main_actions(
     menu_button = _build_menu_button(window, main_menu)
 
     tabs.setDocumentMode(True)
-    header_tools = _install_header_tools(window, menu_button=menu_button)
+    header_tools = _install_header_tools(
+        window, menu_button=menu_button, window_buttons=window_buttons
+    )
     tabs.setCornerWidget(header_tools, Qt.Corner.TopRightCorner)
     # 设置角落控件会重新挂载父级并隐藏控件，必须显式显示。
     header_tools.show()
@@ -151,6 +156,7 @@ def build_main_actions(
     return MainActions(
         main_menu=main_menu,
         menu_button=menu_button,
+        window_buttons=window_buttons,
         header_tools=header_tools,
         theme_menu=theme_menu,
         theme_actions=theme_actions,
@@ -177,14 +183,22 @@ def _build_menu_button(window: QWidget, menu: QMenu) -> QToolButton:
     return button
 
 
-def _install_header_tools(window: QWidget, *, menu_button: QToolButton) -> QWidget:
-    """把“☰”按钮装配成标签栏右上角控件。"""
+def _install_header_tools(
+    window: QWidget,
+    *,
+    menu_button: QToolButton,
+    window_buttons: WindowButtons | None,
+) -> QWidget:
+    """把“☰”按钮与窗口按钮装配成标签栏右上角控件。"""
     header_tools = QWidget(window)
     header_tools.setObjectName("headerTools")
     layout = QHBoxLayout(header_tools)
-    layout.setContentsMargins(2, 0, 4, 0)
-    layout.setSpacing(4)
+    layout.setContentsMargins(2, 0, 0, 0)
+    layout.setSpacing(0)
     layout.addWidget(menu_button)
+    if window_buttons is not None:
+        layout.addSpacing(6)
+        layout.addWidget(window_buttons)
     return header_tools
 
 

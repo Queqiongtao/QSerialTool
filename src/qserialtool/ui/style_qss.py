@@ -31,9 +31,32 @@ QLabel#emptyState {{
     color: {c.muted};
     background: transparent;
 }}
-/* 标签栏右上角“☰”菜单按钮所在容器。 */
+/* 标签栏右上角“☰”与窗口按钮所在容器。 */
 QWidget#headerTools {{
     background: transparent;
+}}
+/* 标题行窗口按钮：贴近系统标题栏的方角悬停；关闭按钮悬停为 Fluent 红底反白。 */
+QWidget#windowControls {{
+    background: transparent;
+}}
+QToolButton#windowMinButton, QToolButton#windowMaxButton, QToolButton#windowCloseButton {{
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}}
+QToolButton#windowMinButton:hover, QToolButton#windowMaxButton:hover {{
+    background: {c.border};
+}}
+QToolButton#windowMinButton:pressed, QToolButton#windowMaxButton:pressed {{
+    background: {c.border_strong};
+}}
+QToolButton#windowCloseButton {{
+    image: url("{assets}/window-close.svg");
+}}
+QToolButton#windowCloseButton:hover, QToolButton#windowCloseButton:pressed {{
+    background: #C42B1C;
+    image: url("{assets}/window-close-active.svg");
 }}
 QFrame#statusFrame {{
     background: {c.subtle};

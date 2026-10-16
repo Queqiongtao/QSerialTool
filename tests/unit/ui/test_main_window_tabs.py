@@ -106,6 +106,9 @@ def test_main_window_uses_single_row_header(qtbot: object) -> None:
     assert window.new_tab_button.parentWidget() is window.tab_bar
     assert window.new_tab_button.isVisible()
     assert window.menu_button.isVisible()
+    if window.window_buttons is not None:
+        assert window.window_buttons.parentWidget() is corner
+        assert window.window_buttons.isVisible()
     window.close()
 
 
