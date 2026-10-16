@@ -91,7 +91,7 @@ class SendPanel(QWidget):
         self.newline_combo.setCurrentIndex(self.newline_combo.findData(DEFAULT_LINE_ENDING))
         self.send_button = QPushButton("发送")
         self.send_button.setProperty("primary", True)
-        self.send_button.setToolTip("Ctrl+Enter")
+        self.send_button.setToolTip("Ctrl+Enter 发送；↑/↓ 浏览发送历史")
         self.send_button.clicked.connect(self.send)
         for widget in (self.mode_combo, self.newline_combo, self.send_button):
             widget.setFixedHeight(CONTROL_HEIGHT_PX)
@@ -134,7 +134,7 @@ class SendPanel(QWidget):
 
     def _build_editor(self) -> QPlainTextEdit:
         self.editor = QPlainTextEdit()
-        self.editor.setPlaceholderText("输入待发送内容，按 Ctrl+Enter 发送")
+        self.editor.setPlaceholderText("输入待发送内容，按 Ctrl+Enter 发送；↑/↓ 浏览历史")
         self.editor.setMinimumHeight(120)
         self.editor.setFont(data_font())
         shortcut = QShortcut(QKeySequence("Ctrl+Return"), self.editor)
