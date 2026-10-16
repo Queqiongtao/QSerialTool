@@ -32,7 +32,8 @@ from .models import AppConfig, LogRecord, SerialConfig, SessionPreferences, Sess
 from .ports import Clock, ConfigStore, LogSink, PortInfo, PortScanner, Transport
 from .state_machine import SessionStateMachine
 from .states import SessionState
-from .terminal import TerminalCell, TerminalScreen, TerminalStyle
+from .terminal import TerminalCell, TerminalScreen
+from .terminal_style import TerminalStyle
 from .types import (
     DEFAULT_LINE_ENDING,
     DisplayMode,

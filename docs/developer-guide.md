@@ -73,7 +73,7 @@ bootstrap -> ui -> application -> domain
 - `domain/terminal.py` 提供独立的行式滚动缓冲终端模型，不依赖 Qt 与 pyserial。
 - `TerminalScreen.feed(text, *, timestamp=None)` 增量解析文本与 ANSI 转义序列，跨记录分片由内部待处理缓冲区拼接；`timestamp` 记为本次写入行的“首次出现时间”（CR 覆盖不更新，`reset()`、顶部淘汰和擦除到行尾删除行时随之丢弃，部分擦除的行保留），`row_time(index)` 供渲染方读取；`lines()`/`cursor` 返回只读快照供渲染，`reset()` 清空画面与解析状态。
 - 渲染方按需取行：`row_count` 与 `row(index)` 避免整屏复制；`dirty_range()` 返回自 `clear_dirty()` 以来内容变化的行区间（右开），滚动淘汰只改变行索引、内容未变的行不算脏，索引随裁剪同步前移，渲染方可据此只改写变化行。
-- `TerminalStyle` 只保存语义样式（`fg`/`bg` 的 0-255 索引与 `bold`），由 UI 映射到当前主题，换主题无需重放数据；0-15 映射主题语义色，16-255 使用 xterm 调色板（16-231 色立方、232-255 灰度）；`TerminalCell` 带 `trailing` 标记双宽字符的右半格。
+- `TerminalStyle`（`domain/terminal_style.py`）只保存语义样式（`fg`/`bg` 的 0-255 索引与 `bold`），由 UI 映射到当前主题，换主题无需重放数据；0-15 映射主题语义色，16-255 使用 xterm 调色板（16-231 色立方、232-255 灰度）；`TerminalCell` 带 `trailing` 标记双宽字符的右半格。
 - 语义约定：LF 换行并回到行首，CR 仅回行首，BS 左移不擦除，HT 跳到下一个 8 列制表位；SGR 支持 0/1/22/30-37/39/40-47/49/90-97/100-107 与 `38;5;n`/`48;5;n` 的 256 色；`38;2;r;g;b`/`48;2;r;g;b` 真彩、斜体等未支持参数整组跳过，缺失后续参数时停止解析且不改动已有属性；CSI 支持 A/B/C/D/H/f/G 与 J/K，越界钳制。
 - 未知、私有与带中间字节的序列整体吞掉；真彩、alternate screen、滚动区域和 OSC 不在范围内。
 - 行数上限默认 5000，单行超过 500 列自动折行，超出上限裁剪最旧行。
