@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences, TerminalScreen
-from qserialtool.ui.terminal_output import TerminalOutput
+from qserialtool.ui.terminal_output import TerminalOutput, format_timestamp
 from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX, data_colors, data_font
 
 # 内存缓冲仍保留 100,000 条，界面只渲染最近若干条，避免整表重插阻塞主线程。
@@ -39,6 +39,7 @@ _HEADING_GAP = 12
 # 标题行控件的折叠优先级：数值越大越先被收进“⋯”菜单；未列出的控件永不折叠。
 _FOLD_RANKS: tuple[tuple[str, int], ...] = (
     ("timestamp_check", 20),
+    ("terminal_timestamp_check", 25),
     ("rx_check", 30),
     ("tx_check", 40),
     ("pause_button", 5),
@@ -211,6 +212,7 @@ class ReceivePanel(QWidget):
         self.mode_combo.addItem("HEX", "hex")
         self.timestamp_check = QCheckBox("时间戳")
         self.timestamp_check.setChecked(True)
+        self.terminal_timestamp_check = QCheckBox("时间戳")
         self.rx_check = QCheckBox("RX")
         self.rx_check.setChecked(True)
         self.tx_check = QCheckBox("TX")
@@ -245,6 +247,7 @@ class ReceivePanel(QWidget):
         header.addSpacing(_HEADING_GAP)
         header.addWidget(self.mode_combo)
         header.addWidget(self.timestamp_check)
+        header.addWidget(self.terminal_timestamp_check)
         header.addWidget(self.rx_check)
         header.addWidget(self.tx_check)
         header.addStretch(1)
@@ -258,6 +261,7 @@ class ReceivePanel(QWidget):
         for widget in (
             self.mode_combo,
             self.timestamp_check,
+            self.terminal_timestamp_check,
             self.rx_check,
             self.tx_check,
             self.pause_button,
@@ -269,12 +273,13 @@ class ReceivePanel(QWidget):
             widget.setFixedHeight(CONTROL_HEIGHT_PX)
 
     def _register_header_widgets(self) -> None:
-        """登记标题行控件与折叠优先级，并初始化高亮开关的可见性。"""
+        """登记标题行控件与折叠优先级，并初始化按模式显示的开关可见性。"""
         self._header_overflow.register(self._heading_label, 0)
         self._header_overflow.register(self.mode_combo, 0)
         for name, rank in _FOLD_RANKS:
             self._header_overflow.register(getattr(self, name), rank)
         self._header_overflow.set_mode_visible(self.highlight_check, False)
+        self._header_overflow.set_mode_visible(self.terminal_timestamp_check, False)
 
     def add_leading_header_widget(self, widget: QWidget, *, fold_rank: int = 0) -> None:
         """在接收标题行最左侧插入控件，例如侧栏折叠按钮。"""
@@ -294,6 +299,7 @@ class ReceivePanel(QWidget):
         for widget in (self.timestamp_check, self.rx_check, self.tx_check):
             self._header_overflow.set_mode_visible(widget, not enabled)
         self._header_overflow.set_mode_visible(self.highlight_check, enabled)
+        self._header_overflow.set_mode_visible(self.terminal_timestamp_check, enabled)
         self.mode_combo.setVisible(not enabled)
         # 终端视图的块状光标会盖住空态文字，切回分栏时再恢复提示。
         self.output.setPlaceholderText("" if enabled else _EMPTY_PLACEHOLDER)
@@ -336,6 +342,7 @@ class ReceivePanel(QWidget):
         self.autoscroll_check.toggled.connect(self._settings_changed)
         self.highlight_check.toggled.connect(self._settings_changed)
         self.wrap_check.toggled.connect(self._settings_changed)
+        self.terminal_timestamp_check.toggled.connect(self._settings_changed)
         self.pause_button.toggled.connect(self._pause_changed)
         self.clear_button.clicked.connect(self._clear)
 
@@ -346,6 +353,7 @@ class ReceivePanel(QWidget):
             with (
                 QSignalBlocker(self.mode_combo),
                 QSignalBlocker(self.timestamp_check),
+                QSignalBlocker(self.terminal_timestamp_check),
                 QSignalBlocker(self.rx_check),
                 QSignalBlocker(self.tx_check),
                 QSignalBlocker(self.autoscroll_check),
@@ -355,6 +363,7 @@ class ReceivePanel(QWidget):
                 index = self.mode_combo.findData(preferences.display_mode)
                 self.mode_combo.setCurrentIndex(max(index, 0))
                 self.timestamp_check.setChecked(preferences.show_timestamp)
+                self.terminal_timestamp_check.setChecked(preferences.terminal_timestamp)
                 self.rx_check.setChecked(preferences.show_rx)
                 self.tx_check.setChecked(preferences.show_tx)
                 self.autoscroll_check.setChecked(preferences.autoscroll)
@@ -364,6 +373,7 @@ class ReceivePanel(QWidget):
             self._loading = False
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.output.set_highlight_enabled(self.highlight_check.isChecked())
+        self.output.set_show_timestamps(self.terminal_timestamp_check.isChecked())
         self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.render_records()
 
@@ -377,7 +387,7 @@ class ReceivePanel(QWidget):
         if self._terminal_mode:
             if record.direction == "rx":
                 screen = self._terminal_screen()
-                screen.feed(record.text)
+                screen.feed(record.text, timestamp=record.timestamp_utc)
                 if not self._paused:
                     self._schedule_flush()
             return
@@ -452,7 +462,7 @@ class ReceivePanel(QWidget):
             hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
             for record in records[hidden:]:
                 if record.direction == "rx":
-                    self._screen.feed(record.text)
+                    self._screen.feed(record.text, timestamp=record.timestamp_utc)
         return self._screen
 
     def set_data_font_size(self, size: int) -> None:
@@ -483,8 +493,7 @@ class ReceivePanel(QWidget):
         return tuple(segments)
 
     def _timestamp_prefix(self, record: LogRecord) -> str:
-        local_time = record.timestamp_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        return f"[{local_time}] "
+        return format_timestamp(record.timestamp_utc)
 
     def _payload_text(self, record: LogRecord) -> str:
         return record.hex_text if self.display_mode == "hex" else record.text
@@ -514,6 +523,7 @@ class ReceivePanel(QWidget):
             return
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.output.set_highlight_enabled(self.highlight_check.isChecked())
+        self.output.set_show_timestamps(self.terminal_timestamp_check.isChecked())
         self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.render_records()
         self.preferences_changed.emit()

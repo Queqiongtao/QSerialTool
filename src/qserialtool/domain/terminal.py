@@ -1,6 +1,7 @@
 """行式滚动缓冲终端模型，解析常见 ANSI 转义序列。"""
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 from unicodedata import combining, east_asian_width
 
 from .errors import ValidationError
@@ -123,7 +124,7 @@ class TerminalCell:
 
 
 class TerminalScreen:
-    """维护行式滚动缓冲、光标位置和当前样式。"""
+    """维护行式滚动缓冲、光标位置、当前样式与行时间元数据。"""
 
     def __init__(
         self,
@@ -138,10 +139,12 @@ class TerminalScreen:
         self._max_rows = max_rows
         self._max_columns = max_columns
         self._rows: list[list[TerminalCell]] = [[]]
+        self._row_times: list[datetime | None] = [None]
         self._cursor_row = 0
         self._cursor_col = 0
         self._style = DEFAULT_STYLE
         self._pending = ""
+        self._active_time: datetime | None = None
         self._dropped = 0
         self._dirty_from: int | None = None
         self._dirty_to = 0
@@ -169,6 +172,10 @@ class TerminalScreen:
     def row(self, index: int) -> tuple[TerminalCell, ...]:
         """返回单行只读快照。"""
         return tuple(self._rows[index])
+
+    def row_time(self, index: int) -> datetime | None:
+        """返回该行首次被写入时的时间；未写入、已淘汰或已整屏重置时为 ``None``。"""
+        return self._row_times[index]
 
     def lines(self) -> tuple[tuple[TerminalCell, ...], ...]:
         """返回只读的行快照。"""
@@ -201,6 +208,7 @@ class TerminalScreen:
     def reset(self) -> None:
         """清空画面、样式与解析状态。"""
         self._rows = [[]]
+        self._row_times = [None]
         self._cursor_row = 0
         self._cursor_col = 0
         self._style = DEFAULT_STYLE
@@ -209,10 +217,17 @@ class TerminalScreen:
         self._dirty_from = 0
         self._dirty_to = len(self._rows)
 
-    def feed(self, text: str) -> None:
-        """解析一段接收文本，未完成的转义序列留待下次拼接。"""
+    def feed(self, text: str, *, timestamp: datetime | None = None) -> None:
+        """解析一段接收文本，未完成的转义序列留待下次拼接。
+
+        ``timestamp`` 作为本次写入行的“首次出现时间”记录到行元数据，供渲染方
+        按需显示行级时间；已写入的行不会被后续写入覆盖时间。
+        """
+        if timestamp is not None and not isinstance(timestamp, datetime):
+            raise ValidationError("终端行时间必须是 datetime 或 None。")
         if not text:
             return
+        self._active_time = timestamp
         buffer = self._pending + text
         self._pending = ""
         index = 0
@@ -275,6 +290,8 @@ class TerminalScreen:
     def _put(self, row: int, column: int, cell: TerminalCell) -> None:
         self._ensure_row(row)
         line = self._rows[row]
+        if self._row_times[row] is None:
+            self._row_times[row] = self._active_time
         while len(line) <= column:
             line.append(TerminalCell())
         line[column] = cell
@@ -283,6 +300,7 @@ class TerminalScreen:
     def _ensure_row(self, row: int) -> None:
         while len(self._rows) <= row:
             self._rows.append([])
+            self._row_times.append(None)
 
     def _line_feed(self) -> None:
         self._cursor_row += 1
@@ -298,6 +316,7 @@ class TerminalScreen:
         if excess <= 0:
             return
         del self._rows[:excess]
+        del self._row_times[:excess]
         self._dropped += excess
         self._cursor_row = max(0, self._cursor_row - excess)
         if self._dirty_from is not None:
@@ -397,6 +416,7 @@ class TerminalScreen:
         elif mode == _ERASE_TO_END:
             self._clear_cells(self._cursor_row, self._cursor_col, self._max_columns)
             del self._rows[self._cursor_row + 1 :]
+            del self._row_times[self._cursor_row + 1 :]
 
     def _erase_line(self, mode: int) -> None:
         if mode == _ERASE_ALL:

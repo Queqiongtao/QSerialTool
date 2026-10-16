@@ -47,6 +47,7 @@ def _app_config() -> AppConfig:
         periodic_interval_ms=250,
         view_mode="terminal",
         wrap_enabled=False,
+        terminal_timestamp=True,
     )
     return AppConfig(
         schema_version=1,

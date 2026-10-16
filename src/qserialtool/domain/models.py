@@ -200,6 +200,7 @@ class SessionPreferences:
     view_mode: ViewMode = "split"
     highlight_enabled: bool = True
     wrap_enabled: bool = True
+    terminal_timestamp: bool = False
 
     def __post_init__(self) -> None:
         _require_string(self.title, "标签标题")
@@ -237,6 +238,7 @@ class SessionPreferences:
             raise ValidationError("视图模式必须是 split 或 terminal。")
         _require_bool(self.highlight_enabled, "highlight_enabled")
         _require_bool(self.wrap_enabled, "wrap_enabled")
+        _require_bool(self.terminal_timestamp, "terminal_timestamp")
 
 
 @dataclass(frozen=True, slots=True)

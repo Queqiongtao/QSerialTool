@@ -224,6 +224,15 @@ def test_session_preferences_defaults_wrap_enabled() -> None:
             _preferences(wrap_enabled=value)
 
 
+def test_session_preferences_defaults_terminal_timestamp() -> None:
+    assert _preferences().terminal_timestamp is False
+    assert _preferences(terminal_timestamp=True).terminal_timestamp is True
+
+    for value in (1, 0, "yes", None):
+        with pytest.raises(ValidationError):
+            _preferences(terminal_timestamp=value)
+
+
 def test_app_config_validates_active_session_index() -> None:
     preferences = _preferences()
     config = AppConfig(1, "system", None, None, 0, (preferences,))

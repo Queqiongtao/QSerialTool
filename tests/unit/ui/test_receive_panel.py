@@ -563,7 +563,7 @@ def test_receive_header_overflow_action_mirrors_checkbox_state(qtbot: object) ->
         qtbot.waitUntil(
             lambda: receive_panel.autoscroll_check in overflow.folded_widgets(), timeout=2000
         )
-        texts = [item.text() for item in overflow.menu.actions()]
+        texts = [item.text() for item in overflow.menu.actions() if item.isVisible()]
         assert len(texts) == len(set(texts))
     finally:
         window.close()

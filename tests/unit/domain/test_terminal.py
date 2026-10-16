@@ -1,5 +1,7 @@
 """测试行式滚动缓冲终端模型。"""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from qserialtool.domain import TerminalScreen, TerminalStyle, ValidationError
@@ -291,6 +293,73 @@ def test_reset_clears_text_and_style() -> None:
     screen.feed("x")
 
     assert screen.lines()[0][0].style == TerminalStyle()
+
+
+def test_row_time_records_first_write_of_each_row() -> None:
+    first = datetime(2026, 10, 16, 8, 0, 0, 500000, tzinfo=timezone.utc)
+    second = datetime(2026, 10, 16, 8, 0, 1, tzinfo=timezone.utc)
+    screen = TerminalScreen()
+
+    screen.feed("hello", timestamp=first)
+    screen.feed(" world\nsecond", timestamp=second)
+
+    assert screen.row_time(0) == first
+    assert screen.row_time(1) == second
+
+
+def test_row_time_ignores_later_carriage_return_overwrite() -> None:
+    first = datetime(2026, 10, 16, 8, 0, 0, tzinfo=timezone.utc)
+    second = datetime(2026, 10, 16, 8, 0, 1, tzinfo=timezone.utc)
+    screen = TerminalScreen()
+
+    screen.feed("progress 10%", timestamp=first)
+    screen.feed("\rprogress 90%", timestamp=second)
+
+    assert screen.text_lines() == ("progress 90%",)
+    assert screen.row_time(0) == first
+
+
+def test_row_time_moves_with_trim_and_clears_on_reset() -> None:
+    moment = datetime(2026, 10, 16, 8, 0, 0, tzinfo=timezone.utc)
+    screen = TerminalScreen(max_rows=3)
+    for index in range(4):
+        screen.feed(f"line{index}\n", timestamp=moment)
+
+    assert screen.text_lines() == ("line2", "line3", "")
+    assert screen.row_time(0) == moment
+    assert screen.row_time(1) == moment
+    assert screen.row_time(2) is None
+
+    screen.feed("\x1b[2J", timestamp=moment)
+
+    assert screen.row_time(0) is None
+
+
+def test_row_time_dropped_with_erased_following_rows() -> None:
+    moment = datetime(2026, 10, 16, 8, 0, 0, tzinfo=timezone.utc)
+    screen = TerminalScreen()
+    screen.feed("one\ntwo\nthree", timestamp=moment)
+    screen.feed("\x1b[2;2H\x1b[J")
+
+    assert screen.row_count == 2
+    assert screen.text_lines()[1].rstrip() == "t"
+    assert screen.row_time(0) == moment
+    # 光标行只被部分清除，保留首写时间。
+    assert screen.row_time(1) == moment
+
+
+def test_row_time_none_without_feed_timestamp() -> None:
+    screen = TerminalScreen()
+    screen.feed("plain")
+
+    assert screen.row_time(0) is None
+
+
+def test_feed_rejects_non_datetime_timestamp() -> None:
+    screen = TerminalScreen()
+
+    with pytest.raises(ValidationError):
+        screen.feed("x", timestamp="2026-10-16")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("kwargs", [{"max_rows": 0}, {"max_columns": 0}])

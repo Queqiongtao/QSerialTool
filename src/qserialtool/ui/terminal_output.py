@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import (
@@ -26,6 +27,12 @@ from qserialtool.ui.theme_manager import ansi_color, data_colors, highlight_colo
 
 # 画面只渲染最近若干行，更早的滚动历史由终端模型保留。
 _MAX_RENDERED_ROWS = 2000
+
+
+def format_timestamp(moment: datetime) -> str:
+    """按分栏时间戳的同一格式渲染本地时间前缀。"""
+    local_time = moment.astimezone().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    return f"[{local_time}] "
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +71,7 @@ class TerminalOutput(QPlainTextEdit):
         self._autoscroll = True
         self._batch_update = False
         self._highlight_enabled = True
+        self._show_timestamps = False
         self._deferred_render = False
         self._rendering = False
         self._scrolling = False
@@ -114,6 +122,10 @@ class TerminalOutput(QPlainTextEdit):
     def set_highlight_enabled(self, enabled: bool) -> None:
         """设置是否在终端视图中叠加地址、链接与关键字高亮。"""
         self._highlight_enabled = enabled
+
+    def set_show_timestamps(self, enabled: bool) -> None:
+        """设置是否在终端每行前渲染灰色的到达时间前缀。"""
+        self._show_timestamps = enabled
 
     def set_wrap_enabled(self, enabled: bool) -> None:
         """设置超长行是否按控件宽度自动换行。"""
@@ -261,8 +273,10 @@ class TerminalOutput(QPlainTextEdit):
             cursor.setCharFormat(self._format_for(data_colors().system))
             cursor.insertText(f"… 已隐藏较早的 {hidden} 行\n")
         for index, row in enumerate(visible):
+            row_index = hidden + index
             highlights = self._highlight_overrides(row)
             if index == cursor_row:
+                self._write_timestamp_prefix(cursor, screen.row_time(row_index))
                 self._write_cells(cursor, row, 0, cursor_col, highlights)
                 self._input_start_position = cursor.position()
                 cursor.setCharFormat(self._format_for_style(TerminalStyle()))
@@ -270,6 +284,7 @@ class TerminalOutput(QPlainTextEdit):
                     cursor.insertText(self._draft)
                 self._cursor_block_number = cursor.blockNumber()
             else:
+                self._write_timestamp_prefix(cursor, screen.row_time(row_index))
                 self._write_cells(cursor, row, 0, None, highlights)
             if index != len(visible) - 1:
                 cursor.insertText("\n")
@@ -377,6 +392,7 @@ class TerminalOutput(QPlainTextEdit):
                 self._replace_block_line(
                     row_index - window.hidden + header_offset,
                     screen.row(row_index),
+                    screen.row_time(row_index),
                 )
             if window.appends > 0:
                 self._append_rows(screen, window.append_start_row, window.total)
@@ -384,6 +400,7 @@ class TerminalOutput(QPlainTextEdit):
                 window.visible_cursor + header_offset,
                 screen.row(window.cursor_row),
                 window.cursor_col,
+                screen.row_time(window.cursor_row),
             )
         finally:
             edit.endEditBlock()
@@ -405,8 +422,14 @@ class TerminalOutput(QPlainTextEdit):
         cursor.setCharFormat(text_format)
         cursor.insertText(text)
 
-    def _replace_block_line(self, block_number: int, row: tuple[TerminalCell, ...]) -> None:
+    def _replace_block_line(
+        self,
+        block_number: int,
+        row: tuple[TerminalCell, ...],
+        time: datetime | None,
+    ) -> None:
         cursor = self._cleared_line_cursor(block_number)
+        self._write_timestamp_prefix(cursor, time)
         self._write_cells(cursor, row, 0, None, self._highlight_overrides(row))
 
     def _replace_cursor_block(
@@ -414,9 +437,11 @@ class TerminalOutput(QPlainTextEdit):
         block_number: int,
         row: tuple[TerminalCell, ...],
         cursor_col: int,
+        time: datetime | None,
     ) -> None:
         """重写光标行：只在光标前渲染单元格，草稿接在其后。"""
         cursor = self._cleared_line_cursor(block_number)
+        self._write_timestamp_prefix(cursor, time)
         self._write_cells(cursor, row, 0, cursor_col, self._highlight_overrides(row))
         self._input_start_position = cursor.position()
         cursor.setCharFormat(self._format_for_style(TerminalStyle()))
@@ -443,7 +468,15 @@ class TerminalOutput(QPlainTextEdit):
         for row_index in range(start, end):
             row = screen.row(row_index)
             cursor.insertText("\n")
+            self._write_timestamp_prefix(cursor, screen.row_time(row_index))
             self._write_cells(cursor, row, 0, None, self._highlight_overrides(row))
+
+    def _write_timestamp_prefix(self, cursor: QTextCursor, time: datetime | None) -> None:
+        """按需在行首写入灰色时间前缀；复制选中内容时会包含该前缀。"""
+        if not self._show_timestamps or time is None:
+            return
+        cursor.setCharFormat(self._format_for(data_colors().system))
+        cursor.insertText(format_timestamp(time))
 
     def _write_cells(
         self,

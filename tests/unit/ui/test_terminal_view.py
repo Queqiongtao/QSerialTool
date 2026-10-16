@@ -1,5 +1,7 @@
 """测试终端视图的渲染、输入与高亮。"""
 
+import re
+
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import (
     QKeyEvent,
@@ -57,12 +59,13 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     assert not tab.receive_panel.output.isReadOnly()
     assert tab.receive_panel.output.toPlainText() == ""
     assert all(
-        not widget.isVisibleTo(tab)
-        for widget in (
-            tab.receive_panel.mode_combo,
-            tab.receive_panel.timestamp_check,
-            tab.receive_panel.rx_check,
-            tab.receive_panel.tx_check,
+        widget.isVisibleTo(tab) == expected
+        for widget, expected in (
+            (tab.receive_panel.mode_combo, False),
+            (tab.receive_panel.timestamp_check, False),
+            (tab.receive_panel.rx_check, False),
+            (tab.receive_panel.tx_check, False),
+            (tab.receive_panel.terminal_timestamp_check, True),
         )
     )
     assert splitter.handleWidth() == 0
@@ -86,12 +89,13 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     assert tab.receive_panel.terminal_draft == "draft"
     assert "draft" not in tab.receive_panel.output.toPlainText()
     assert all(
-        widget.isVisibleTo(tab)
-        for widget in (
-            tab.receive_panel.mode_combo,
-            tab.receive_panel.timestamp_check,
-            tab.receive_panel.rx_check,
-            tab.receive_panel.tx_check,
+        widget.isVisibleTo(tab) == expected
+        for widget, expected in (
+            (tab.receive_panel.mode_combo, True),
+            (tab.receive_panel.timestamp_check, True),
+            (tab.receive_panel.rx_check, True),
+            (tab.receive_panel.tx_check, True),
+            (tab.receive_panel.terminal_timestamp_check, False),
         )
     )
     assert splitter.handleWidth() == 6
@@ -140,6 +144,7 @@ def test_session_tab_restores_terminal_view_and_saved_split_state(
         show_tx=True,
         autoscroll=True,
         view_mode="terminal",
+        terminal_timestamp=True,
     )
     config = AppConfig(
         schema_version=1,
@@ -166,6 +171,7 @@ def test_session_tab_restores_terminal_view_and_saved_split_state(
         assert tab.send_settings_button.isVisibleTo(tab)
         assert not tab.receive_panel.output.isReadOnly()
         assert tab.receive_panel.output.toPlainText() == ""
+        assert tab.receive_panel.terminal_timestamp_check.isChecked()
 
         qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
 
@@ -774,4 +780,93 @@ def test_terminal_click_without_drag_flushes_deferred_render(qtbot: object) -> N
         assert output.textCursor().position() == output.document().characterCount() - 1
     finally:
         tab.controller.close(force=True)
+        window.close()
+
+
+_TIMESTAMP_PATTERN = re.compile(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] ")
+
+
+def test_terminal_row_timestamps_render_and_toggle(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        tab.receive_panel.terminal_timestamp_check.setChecked(True)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        transport.push_read(b"hello world")
+        qtbot.waitUntil(lambda: "hello world" in output.toPlainText(), timeout=2000)
+
+        text = output.toPlainText()
+
+        assert _TIMESTAMP_PATTERN.match(text) is not None
+        assert text.endswith("] hello world")
+
+        # 勾选状态下选中复制的内容会带上行首时间前缀。
+        output.selectAll()
+        output.copy()
+        assert QApplication.clipboard().text() == text
+
+        # 先清掉选中，再关闭时间戳；存在选中时渲染按设计延迟。
+        cursor = output.textCursor()
+        cursor.clearSelection()
+        output.setTextCursor(cursor)
+        tab.receive_panel.terminal_timestamp_check.setChecked(False)
+        qtbot.waitUntil(lambda: output.toPlainText() == "hello world", timeout=2000)
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_row_timestamps_survive_incremental_render_and_view_round_trip(
+    qtbot: object,
+) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        tab.receive_panel.terminal_timestamp_check.setChecked(True)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+        transport.push_read(b"one\n")
+        qtbot.waitUntil(lambda: "one" in output.toPlainText(), timeout=2000)
+        transport.push_read(b"two")
+        qtbot.waitUntil(lambda: "two" in output.toPlainText(), timeout=2000)
+
+        text = output.toPlainText()
+
+        assert len(_TIMESTAMP_PATTERN.findall(text)) == 2
+
+        # 分栏往返后从缓冲重建模型，行时间前缀保持不变。
+        tab.set_view_mode("split", persist=False)
+        tab.set_view_mode("terminal", persist=False)
+        rebuilt = output.toPlainText()
+
+        assert rebuilt == text
+        assert len(_TIMESTAMP_PATTERN.findall(rebuilt)) == 2
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_timestamp_persists_per_tab(qtbot: object) -> None:
+    transport = FakeTransport()
+    store = RecordingStore()
+    window = build_window_with_store(qtbot, transport, store)
+    tab = current_tab(window)
+
+    try:
+        tab.receive_panel.terminal_timestamp_check.setChecked(True)
+        window._save_timer.stop()
+        window._save_config()
+
+        assert store.saves[-1].sessions[0].terminal_timestamp is True
+
+        second = window.new_session()
+        assert second.receive_panel.terminal_timestamp_check.isChecked() is False
+    finally:
         window.close()

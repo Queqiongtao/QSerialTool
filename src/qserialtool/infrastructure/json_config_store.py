@@ -149,4 +149,5 @@ class JsonConfigStore:
             view_mode=payload.get("view_mode", "split"),
             highlight_enabled=payload.get("highlight_enabled", True),
             wrap_enabled=payload.get("wrap_enabled", True),
+            terminal_timestamp=payload.get("terminal_timestamp", False),
         )

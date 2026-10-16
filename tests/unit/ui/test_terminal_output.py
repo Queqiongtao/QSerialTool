@@ -1,7 +1,13 @@
 """测试终端视图的增量渲染、滚动窗口与批量追加。"""
 
+import re
+from datetime import datetime, timezone
+
+from tests.fixtures.ui_helpers import fragment_formats
+
 from qserialtool.domain import TerminalScreen
 from qserialtool.ui.terminal_output import TerminalOutput
+from qserialtool.ui.theme_manager import data_colors
 
 
 def _output(qtbot: object) -> TerminalOutput:
@@ -111,3 +117,60 @@ def test_append_lines_keeps_order_and_per_line_format(qtbot: object) -> None:
     )
 
     assert output.toPlainText() == "first\nRX: payload\n"
+
+
+_TIMESTAMP_PATTERN = re.compile(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] ")
+
+
+def test_timestamps_render_gray_prefix_and_keep_draft_aligned(qtbot: object) -> None:
+    output = _output(qtbot)
+    output.set_show_timestamps(True)
+    screen = TerminalScreen()
+    screen.feed("#cmd\n", timestamp=datetime(2026, 10, 16, 8, 0, 0, tzinfo=timezone.utc))
+    output.render_screen(screen)
+    output.set_draft("next")
+
+    text = output.toPlainText()
+
+    assert text.startswith("[2026-10-16 ")
+    assert text.endswith("] #cmd\nnext")
+    assert fragment_formats(output)[0][1] == data_colors().system
+
+
+def test_timestamp_toggle_rebuilds_prefixes_consistently(qtbot: object) -> None:
+    output = _output(qtbot)
+    screen = TerminalScreen()
+    screen.feed("hello", timestamp=datetime(2026, 10, 16, 8, 0, 0, tzinfo=timezone.utc))
+    output.render_screen(screen)
+
+    assert output.toPlainText() == "hello"
+
+    output.set_show_timestamps(True)
+    output.render_screen(screen, full=True)
+    assert output.toPlainText().endswith("] hello")
+
+    output.set_show_timestamps(False)
+    output.render_screen(screen, full=True)
+    assert output.toPlainText() == "hello"
+
+
+def test_timestamps_match_between_incremental_and_full_rebuild(qtbot: object) -> None:
+    output = _output(qtbot)
+    output.set_show_timestamps(True)
+    screen = TerminalScreen()
+    chunks = ("one\n", "two\r\n", "three")
+    for index, chunk in enumerate(chunks):
+        screen.feed(
+            chunk,
+            timestamp=datetime(2026, 10, 16, 8, 0, index, tzinfo=timezone.utc),
+        )
+        output.render_screen(screen)
+    incremental = output.toPlainText()
+    output.render_screen(screen, full=True)
+
+    assert output.toPlainText() == incremental
+    lines = incremental.splitlines()
+
+    assert len(lines) == 3
+    assert all(_TIMESTAMP_PATTERN.match(line) for line in lines)
+    assert [line.split("] ", 1)[1] for line in lines] == ["one", "two", "three"]
