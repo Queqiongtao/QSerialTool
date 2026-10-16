@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from threading import Condition, Event, Lock
 from time import monotonic
 
+from qserialtool.application import SessionController, SessionControllerOptions
 from qserialtool.domain import DomainError, SerialConfig
 
 
@@ -181,3 +182,62 @@ class RecordingWorkerHandler:
 
     def on_stopped(self) -> None:
         self.stopped_event.set()
+
+
+class SnapshotRecorder:
+    """记录快照并支持条件等待。"""
+
+    def __init__(self) -> None:
+        self.condition = Condition()
+        self.snapshots = []
+
+    def __call__(self, snapshot: object) -> None:
+        with self.condition:
+            self.snapshots.append(snapshot)
+            self.condition.notify_all()
+
+    def wait_for(self, predicate: object, timeout: float = 2.0) -> bool:
+        with self.condition:
+            return self.condition.wait_for(
+                lambda: any(predicate(item) for item in self.snapshots), timeout
+            )
+
+
+class RecordRecorder:
+    """记录串口数据事件。"""
+
+    def __init__(self) -> None:
+        self.condition = Condition()
+        self.records = []
+
+    def __call__(self, record: object) -> None:
+        with self.condition:
+            self.records.append(record)
+            self.condition.notify_all()
+
+    def wait_for(self, predicate: object, timeout: float = 2.0) -> bool:
+        with self.condition:
+            return self.condition.wait_for(
+                lambda: any(predicate(item) for item in self.records), timeout
+            )
+
+
+def build_controller(
+    transport: FakeTransport,
+    *,
+    config: SerialConfig | None = None,
+    snapshots: SnapshotRecorder | None = None,
+    records: RecordRecorder | None = None,
+) -> SessionController:
+    """构造带固定身份与假时钟的会话控制器。"""
+    return SessionController(
+        config=config or SerialConfig(port="COM1"),
+        transport_factory=lambda: transport,
+        clock=FakeClock(),
+        options=SessionControllerOptions(
+            session_id="session-1",
+            title="测试会话",
+            on_snapshot=snapshots,
+            on_record=records,
+        ),
+    )

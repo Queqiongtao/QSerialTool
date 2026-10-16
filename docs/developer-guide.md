@@ -188,6 +188,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - 文件名为 `QSerialTool_<清理后的端口>_YYYYMMDD_HHMMSS.<csv|txt>`；同名时追加数字后缀。
 - 每累计 `256 KiB` 或经过 `1 s` 时刷新一次，具体取决于先达到的条件。
 - 日志错误保存为会话错误，但不会中断串口 I/O。
+- 日志偏好与错误协调：`SessionLogCoordinator`（`application/session_log.py`）管理偏好与 `LogService` 生命周期，`SessionRecorder`（`application/session_recorder.py`）维护缓冲、收发累计字节与跨读取块解码尾巴，`SessionErrorTracker`（`application/session_errors.py`）提供“只记首个错误”的共享槽位；控制器可选参数与标题校验集中在 `application/session_options.py`。
 
 CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`encoding`、`text`、`hex`。TXT 使用 UTF-8，格式为 `[本地时间] 方向 [编码] 文本`。
 

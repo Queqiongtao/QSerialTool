@@ -2,25 +2,28 @@
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from uuid import uuid4
 
-from qserialtool.application.log_service import LogService
-from qserialtool.application.serial_worker import (
-    SerialWorker,
-    SerialWorkerOptions,
-    WorkerEventHandler,
+from qserialtool.application.serial_worker import SerialWorker, WorkerEventHandler
+from qserialtool.application.session_errors import SessionErrorTracker
+from qserialtool.application.session_log import (
+    LogPreferences,
+    SessionLogCoordinator,
+    validate_log_preferences,
 )
+from qserialtool.application.session_options import (
+    SessionControllerOptions,
+    validate_session_title,
+)
+from qserialtool.application.session_recorder import SessionRecorder
 from qserialtool.domain import (
     Clock,
     DomainError,
     InvalidStateTransitionError,
     LogFormat,
-    LogIOError,
     LogRecord,
-    LogSink,
     RecordBuffer,
     SerialConfig,
     SessionSnapshot,
@@ -28,33 +31,10 @@ from qserialtool.domain import (
     SessionStateMachine,
     Transport,
     TransportIOError,
-    UserFacingError,
     ValidationError,
-    decode_partial,
 )
 
-SnapshotCallback = Callable[[SessionSnapshot], None]
-RecordCallback = Callable[[LogRecord], None]
-
-MAX_SESSION_TITLE_LENGTH = 40
-
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class SessionControllerOptions:
-    """SessionController 的可选身份、缓冲和回调参数。"""
-
-    session_id: str | None = None
-    title: str | None = None
-    buffer: RecordBuffer | None = None
-    on_snapshot: SnapshotCallback | None = None
-    on_record: RecordCallback | None = None
-    worker_options: SerialWorkerOptions | None = None
-    log_sink_factory: Callable[[LogFormat], LogSink] | None = None
-    auto_log_enabled: bool = False
-    auto_log_format: LogFormat = "csv"
-    auto_log_directory: str = ""
 
 
 class SessionController(WorkerEventHandler):
@@ -80,27 +60,28 @@ class SessionController(WorkerEventHandler):
             raise ValidationError("会话标题不能为空。")
         self._config = config
         self._transport_factory = transport_factory
-        self._clock = clock
         self._worker_options = selected_options.worker_options
-        self._log_sink_factory = selected_options.log_sink_factory
-        self._auto_log_enabled = selected_options.auto_log_enabled
-        self._auto_log_format = selected_options.auto_log_format
-        self._auto_log_directory = selected_options.auto_log_directory
-        self._log_service = (
-            LogService(sink_factory=self._log_sink_factory, clock=self._clock)
-            if self._log_sink_factory is not None
-            else None
-        )
-        self._buffer = selected_options.buffer or RecordBuffer()
         self._state_machine = SessionStateMachine()
+        self._errors = SessionErrorTracker()
+        self._log = SessionLogCoordinator(
+            sink_factory=selected_options.log_sink_factory,
+            clock=clock,
+            preferences=LogPreferences(
+                enabled=selected_options.auto_log_enabled,
+                log_format=selected_options.auto_log_format,
+                directory=selected_options.auto_log_directory,
+            ),
+            errors=self._errors,
+        )
+        self._recorder = SessionRecorder(
+            buffer=selected_options.buffer or RecordBuffer(),
+            clock=clock,
+            session_id=self._session_id,
+        )
         self._worker: SerialWorker | None = None
-        self._last_error: UserFacingError | None = None
-        self._rx_bytes = 0
-        self._tx_bytes = 0
-        self._rx_tail = b""
         self._on_snapshot = selected_options.on_snapshot
         self._on_record = selected_options.on_record
-        self._notify_current_snapshot()
+        self._notify_snapshot(self._build_snapshot())
 
     @property
     def session_id(self) -> str:
@@ -114,11 +95,7 @@ class SessionController(WorkerEventHandler):
 
     def rename(self, title: str) -> None:
         """重命名会话标签，广播快照但不影响连接状态。"""
-        cleaned = title.strip()
-        if not cleaned:
-            raise ValidationError("会话名称不能为空。")
-        if len(cleaned) > MAX_SESSION_TITLE_LENGTH:
-            raise ValidationError(f"会话名称不能超过 {MAX_SESSION_TITLE_LENGTH} 个字符。")
+        cleaned = validate_session_title(title)
         with self._lock:
             if cleaned == self._title:
                 return
@@ -147,65 +124,43 @@ class SessionController(WorkerEventHandler):
     def records(self) -> tuple[LogRecord, ...]:
         """返回当前内存缓冲的不可变快照。"""
         with self._lock:
-            return self._buffer.records
+            return self._recorder.records
 
     @property
     def auto_log_enabled(self) -> bool:
         """返回自动日志开关。"""
-        return self._auto_log_enabled
+        return self._log.enabled
 
     @property
     def auto_log_format(self) -> LogFormat:
         """返回自动日志格式。"""
-        return self._auto_log_format
+        return self._log.log_format
 
     @property
     def auto_log_directory(self) -> str:
         """返回自动日志目录。"""
-        return self._auto_log_directory
+        return self._log.directory
 
     @property
     def log_path(self) -> object | None:
         """返回当前连接正在写入的日志路径。"""
-        service = self._log_service
-        return service.path if service is not None else None
+        return self._log.path
 
     def update_log_preferences(
         self, *, enabled: bool, log_format: LogFormat, directory: str
     ) -> None:
         """更新下一次连接使用的自动日志设置。"""
-        if type(enabled) is not bool:
-            raise ValidationError("自动日志开关必须是布尔值。")
-        if self._state_machine.state in {
-            SessionState.CONNECTING,
-            SessionState.CONNECTED,
-            SessionState.DISCONNECTING,
-        }:
-            raise InvalidStateTransitionError(self._state_machine.state, "update_log_preferences")
-        if log_format not in {"csv", "txt"}:
-            raise ValidationError("自动日志格式必须是 csv 或 txt。")
-        if not isinstance(directory, str):
-            raise ValidationError("自动日志开关必须是布尔值。")
-        self._auto_log_enabled = enabled
-        self._auto_log_format = log_format
-        self._auto_log_directory = directory
+        validate_log_preferences(
+            state=self._state_machine.state,
+            enabled=enabled,
+            log_format=log_format,
+            directory=directory,
+        )
+        self._log.set_preferences(enabled=enabled, log_format=log_format, directory=directory)
 
     def export_records(self, path: Path, log_format: LogFormat) -> int:
         """把当前完整内存缓冲导出为 CSV 或 TXT。"""
-        if self._log_sink_factory is None:
-            raise LogIOError("未配置日志输出。")
-        if log_format not in {"csv", "txt"}:
-            raise ValidationError("日志格式必须是 csv 或 txt。")
-        records = self.records
-        sink = self._log_sink_factory(log_format)
-        try:
-            sink.open(path)
-            for record in records:
-                sink.write(record)
-            sink.flush()
-        finally:
-            sink.close()
-        return len(records)
+        return self._log.export(path, log_format, self.records)
 
     def connect(self, config: SerialConfig | None = None) -> None:
         """校验配置并启动串口 Worker。"""
@@ -219,8 +174,8 @@ class SessionController(WorkerEventHandler):
                     SessionState.CONNECTING,
                 )
             self._config = selected_config
-            self._last_error = None
-            self._rx_tail = b""
+            self._errors.clear()
+            self._recorder.reset_tail()
             self._state_machine.connect()
             worker = SerialWorker(
                 config=selected_config,
@@ -265,7 +220,7 @@ class SessionController(WorkerEventHandler):
                 with self._lock:
                     if self._state_machine.state is SessionState.DISCONNECTING:
                         self._state_machine.mark_cleanup_failed()
-                    self._last_error = TransportIOError("等待串口线程退出超时。").to_user_facing()
+                    self._errors.record(TransportIOError("等待串口线程退出超时。"))
                     error_snapshot = self._build_snapshot()
                 self._notify_snapshot(error_snapshot)
                 return False
@@ -299,21 +254,19 @@ class SessionController(WorkerEventHandler):
     def send(self, data: bytes) -> None:
         """提交一次完整写入。"""
         with self._lock:
-            self._require_connected("send")
-            worker = self._require_worker()
+            worker = self._worker_for("send")
         worker.send(data)
 
     def set_line_state(self, *, dtr: bool, rts: bool) -> None:
         """修改已连接会话的 DTR/RTS 状态。"""
         with self._lock:
-            self._require_connected("set_line_state")
-            worker = self._require_worker()
+            worker = self._worker_for("set_line_state")
         worker.set_line_state(dtr=dtr, rts=rts)
 
     def clear_buffer(self) -> int:
         """清空当前内存缓冲但不重置累计统计。"""
         with self._lock:
-            removed = self._buffer.clear()
+            removed = self._recorder.clear_buffer()
             snapshot = self._build_snapshot()
         self._notify_snapshot(snapshot)
         return removed
@@ -323,8 +276,8 @@ class SessionController(WorkerEventHandler):
         with self._lock:
             if self._state_machine.state is SessionState.CONNECTING:
                 self._state_machine.mark_connected()
-            self._start_log_locked()
-            record = self._system_record("串口已连接。")
+            self._log.start(self._config.port)
+            record = self._recorder.system_record("串口已连接。")
             self._append_record_locked(record)
             snapshot = self._build_snapshot()
         self._notify_record(record)
@@ -336,8 +289,8 @@ class SessionController(WorkerEventHandler):
         with self._lock:
             if self._state_machine.state is SessionState.CONNECTING:
                 self._state_machine.mark_connect_failed()
-            self._last_error = error.to_user_facing()
-            record = self._system_record(error.message)
+            self._errors.record(error)
+            record = self._recorder.system_record(error.message)
             self._append_record_locked(record)
             snapshot = self._build_snapshot()
         self._notify_record(record)
@@ -348,19 +301,8 @@ class SessionController(WorkerEventHandler):
         with self._lock:
             if self._state_machine.state is not SessionState.CONNECTED:
                 return
-            combined = self._rx_tail + data
-            text, self._rx_tail = decode_partial(combined, self._config.encoding)
-            self._rx_bytes += len(data)
-            record = None
-            if text:
-                record = LogRecord.from_bytes(
-                    timestamp_utc=self._clock.now_utc(),
-                    direction="rx",
-                    raw=combined[: len(combined) - len(self._rx_tail)],
-                    encoding=self._config.encoding,
-                    session_id=self._session_id,
-                    text=text,
-                )
+            record = self._recorder.on_received(data, self._config.encoding)
+            if record is not None:
                 self._append_record_locked(record)
             snapshot = self._build_snapshot()
         if record is not None:
@@ -370,15 +312,8 @@ class SessionController(WorkerEventHandler):
     def on_bytes_sent(self, data: bytes) -> None:
         """处理发送完成数据。"""
         with self._lock:
-            record = LogRecord.from_bytes(
-                timestamp_utc=self._clock.now_utc(),
-                direction="tx",
-                raw=data,
-                encoding=self._config.encoding,
-                session_id=self._session_id,
-            )
+            record = self._recorder.on_sent(data, self._config.encoding)
             self._append_record_locked(record)
-            self._tx_bytes += len(data)
             snapshot = self._build_snapshot()
         self._notify_record(record)
         self._notify_snapshot(snapshot)
@@ -387,11 +322,10 @@ class SessionController(WorkerEventHandler):
         """记录 I/O 错误并启动安全断开。"""
         logger.warning("串口 I/O 错误：%s", error.message)
         with self._lock:
-            if self._last_error is None:
-                self._last_error = error.to_user_facing()
+            self._errors.record(error)
             if self._state_machine.state is SessionState.CONNECTED:
                 self._state_machine.begin_disconnect()
-            record = self._system_record(error.message)
+            record = self._recorder.system_record(error.message)
             self._append_record_locked(record)
             snapshot = self._build_snapshot()
         self._notify_record(record)
@@ -403,17 +337,14 @@ class SessionController(WorkerEventHandler):
             state = self._state_machine.state
             if state is SessionState.CONNECTING:
                 self._state_machine.mark_connect_failed()
-                if self._last_error is None:
-                    self._last_error = TransportIOError(
-                        "串口线程在连接完成前结束。"
-                    ).to_user_facing()
+                self._errors.record(TransportIOError("串口线程在连接完成前结束。"))
             elif state is SessionState.CONNECTED:
                 self._state_machine.begin_disconnect()
                 self._state_machine.mark_disconnected()
             elif state is SessionState.DISCONNECTING:
                 self._state_machine.mark_disconnected()
             tail_record = self._flush_rx_tail_locked()
-            self._close_log_locked()
+            self._log.close()
             self._worker = None
             snapshot = self._build_snapshot()
         if tail_record is not None:
@@ -421,69 +352,25 @@ class SessionController(WorkerEventHandler):
         self._notify_snapshot(snapshot)
 
     def _flush_rx_tail_locked(self) -> LogRecord | None:
-        """把未成形的尾字节按占位文本记为接收记录，避免断开时静默丢弃。"""
-        if not self._rx_tail:
-            return None
-        tail = self._rx_tail
-        self._rx_tail = b""
-        record = LogRecord.from_bytes(
-            timestamp_utc=self._clock.now_utc(),
-            direction="rx",
-            raw=tail,
-            encoding=self._config.encoding,
-            session_id=self._session_id,
-        )
-        self._append_record_locked(record)
+        """把未成形的尾字节记为接收记录，避免断开时静默丢弃。"""
+        record = self._recorder.flush_tail(self._config.encoding)
+        if record is not None:
+            self._append_record_locked(record)
         return record
 
     def _append_record_locked(self, record: LogRecord) -> None:
         """同时写入内存缓冲和当前自动日志。"""
-        self._buffer.append(record)
-        service = self._log_service
-        if service is None or not service.is_active:
-            return
-        try:
-            service.write(record)
-        except DomainError as exc:
-            if self._last_error is None:
-                logger.warning("自动日志写入失败：%s", exc.message)
-                self._last_error = exc.to_user_facing()
+        self._recorder.append(record)
+        self._log.write(record)
 
-    def _start_log_locked(self) -> None:
-        """按当前偏好启动本次连接的自动日志。"""
-        service = self._log_service
-        if service is None or not self._auto_log_enabled:
-            return
-        try:
-            service.start(
-                directory=self._auto_log_directory,
-                port=self._config.port,
-                log_format=self._auto_log_format,
-            )
-        except DomainError as exc:
-            if self._last_error is None:
-                self._last_error = exc.to_user_facing()
-
-    def _close_log_locked(self) -> None:
-        """安全关闭当前自动日志。"""
-        service = self._log_service
-        if service is None:
-            return
-        try:
-            service.close()
-        except DomainError as exc:
-            if self._last_error is None:
-                self._last_error = exc.to_user_facing()
-
-    def _require_connected(self, action: str) -> None:
+    def _worker_for(self, action: str) -> SerialWorker:
+        """在会话锁内校验连接状态并返回活动的工作线程。"""
         if self._state_machine.state is not SessionState.CONNECTED:
             raise InvalidStateTransitionError(
                 self._state_machine.state,
                 action,
                 SessionState.CONNECTED,
             )
-
-    def _require_worker(self) -> SerialWorker:
         worker = self._worker
         if worker is None or not worker.is_alive:
             raise TransportIOError("串口工作线程未运行。")
@@ -495,26 +382,11 @@ class SessionController(WorkerEventHandler):
             title=self._title,
             state=self._state_machine.state,
             config=self._config,
-            last_error=self._last_error,
-            rx_bytes=self._rx_bytes,
-            tx_bytes=self._tx_bytes,
-            dropped_records=self._buffer.dropped_records,
+            last_error=self._errors.current,
+            rx_bytes=self._recorder.rx_bytes,
+            tx_bytes=self._recorder.tx_bytes,
+            dropped_records=self._recorder.dropped_records,
         )
-
-    def _system_record(self, message: str) -> LogRecord:
-        raw = message.encode("utf-8")
-        return LogRecord.from_bytes(
-            timestamp_utc=self._clock.now_utc(),
-            direction="system",
-            raw=raw,
-            encoding="utf-8",
-            session_id=self._session_id,
-        )
-
-    def _notify_current_snapshot(self) -> None:
-        with self._lock:
-            snapshot = self._build_snapshot()
-        self._notify_snapshot(snapshot)
 
     def _notify_record(self, record: LogRecord) -> None:
         if self._on_record is not None:

@@ -4,9 +4,9 @@ from collections.abc import Callable
 from threading import RLock
 from uuid import uuid4
 
-from qserialtool.application.session_controller import (
+from qserialtool.application.session_controller import SessionController
+from qserialtool.application.session_options import (
     RecordCallback,
-    SessionController,
     SessionControllerOptions,
     SnapshotCallback,
 )

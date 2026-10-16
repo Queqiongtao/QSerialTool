@@ -1,11 +1,15 @@
-"""测试单会话控制器状态、缓冲和资源生命周期。"""
+"""测试单会话控制器的连接生命周期、状态转换与标题校验。"""
 
-from pathlib import Path
-from threading import Condition, Event
+from threading import Event
 from typing import cast
 
 import pytest
-from tests.fixtures.fakes import FakeClock, FakeTransport
+from tests.fixtures.fakes import (
+    FakeClock,
+    FakeTransport,
+    SnapshotRecorder,
+    build_controller,
+)
 
 from qserialtool.application import (
     MAX_SESSION_TITLE_LENGTH,
@@ -16,7 +20,6 @@ from qserialtool.application import (
 from qserialtool.domain import (
     ErrorCode,
     InvalidStateTransitionError,
-    LogIOError,
     PortBusyError,
     SerialConfig,
     SessionState,
@@ -25,175 +28,10 @@ from qserialtool.domain import (
 )
 
 
-class SnapshotRecorder:
-    """记录快照并支持条件等待。"""
-
-    def __init__(self) -> None:
-        self.condition = Condition()
-        self.snapshots = []
-
-    def __call__(self, snapshot: object) -> None:
-        with self.condition:
-            self.snapshots.append(snapshot)
-            self.condition.notify_all()
-
-    def wait_for(self, predicate: object, timeout: float = 2.0) -> bool:
-        with self.condition:
-            return self.condition.wait_for(
-                lambda: any(predicate(item) for item in self.snapshots), timeout
-            )
-
-
-class RecordRecorder:
-    """记录串口数据事件。"""
-
-    def __init__(self) -> None:
-        self.condition = Condition()
-        self.records = []
-
-    def __call__(self, record: object) -> None:
-        with self.condition:
-            self.records.append(record)
-            self.condition.notify_all()
-
-    def wait_for(self, predicate: object, timeout: float = 2.0) -> bool:
-        with self.condition:
-            return self.condition.wait_for(
-                lambda: any(predicate(item) for item in self.records), timeout
-            )
-
-
-class _FailingLogSink:
-    """写入即失败的日志输出，用于验证自动日志故障的上报与诊断记录。"""
-
-    def open(self, path: object) -> None:
-        return None
-
-    def write(self, record: object) -> None:
-        raise LogIOError("磁盘已满")
-
-    def flush(self) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-
-def _controller(
-    transport: FakeTransport,
-    *,
-    config: SerialConfig | None = None,
-    snapshots: SnapshotRecorder | None = None,
-    records: RecordRecorder | None = None,
-) -> SessionController:
-    return SessionController(
-        config=config or SerialConfig(port="COM1"),
-        transport_factory=lambda: transport,
-        clock=FakeClock(),
-        options=SessionControllerOptions(
-            session_id="session-1",
-            title="测试会话",
-            on_snapshot=snapshots,
-            on_record=records,
-        ),
-    )
-
-
-def test_controller_connects_sends_receives_and_disconnects() -> None:
-    transport = FakeTransport()
-    snapshots = SnapshotRecorder()
-    records = RecordRecorder()
-    controller = _controller(transport, snapshots=snapshots, records=records)
-
-    assert controller.state is SessionState.DISCONNECTED
-    controller.connect()
-    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
-
-    controller.send(b"tx")
-    assert transport.write_event.wait(1.0)
-    assert snapshots.wait_for(lambda snapshot: snapshot.tx_bytes == 2)
-
-    transport.push_read(b"rx")
-    assert records.wait_for(lambda record: record.direction == "rx" and record.raw == b"rx")
-    assert snapshots.wait_for(lambda snapshot: snapshot.rx_bytes == 2)
-
-    assert controller.disconnect()
-    assert controller.state is SessionState.DISCONNECTED
-    assert transport.close_count == 1
-
-
-def test_controller_joins_split_multibyte_characters_across_reads() -> None:
-    transport = FakeTransport()
-    snapshots = SnapshotRecorder()
-    records = RecordRecorder()
-    controller = _controller(transport, snapshots=snapshots, records=records)
-    controller.connect()
-    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
-
-    data = "串口".encode()
-    transport.push_read(data[:2])
-    transport.push_read(data[2:])
-
-    assert records.wait_for(lambda record: record.direction == "rx" and record.text == "串口")
-    record = next(item for item in records.records if item.direction == "rx")
-    assert record.raw == data
-    assert record.hex_text == "E4 B8 B2 E5 8F A3"
-    assert snapshots.wait_for(lambda snapshot: snapshot.rx_bytes == len(data))
-    assert controller.disconnect()
-
-
-def test_controller_flush_reports_incomplete_tail_on_disconnect() -> None:
-    transport = FakeTransport()
-    snapshots = SnapshotRecorder()
-    records = RecordRecorder()
-    controller = _controller(transport, snapshots=snapshots, records=records)
-    controller.connect()
-    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
-
-    transport.push_read(b"A\xe4")
-    assert records.wait_for(lambda record: record.direction == "rx" and record.raw == b"A")
-
-    assert controller.disconnect()
-
-    tail = [item for item in records.records if item.direction == "rx"][-1]
-    assert tail.raw == b"\xe4"
-    assert tail.text == "<E4>"
-    assert controller.snapshot.rx_bytes == 2
-
-
-def test_controller_reports_automatic_log_failures_once(caplog: object, tmp_path: Path) -> None:
-    transport = FakeTransport()
-    snapshots = SnapshotRecorder()
-    controller = SessionController(
-        config=SerialConfig(port="COM1"),
-        transport_factory=lambda: transport,
-        clock=FakeClock(),
-        options=SessionControllerOptions(
-            session_id="log-failure",
-            on_snapshot=snapshots,
-            log_sink_factory=lambda _format: _FailingLogSink(),
-            auto_log_enabled=True,
-            auto_log_directory=str(tmp_path),
-        ),
-    )
-
-    try:
-        controller.connect()
-        assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
-
-        transport.push_read(b"data")
-
-        assert snapshots.wait_for(lambda snapshot: snapshot.last_error is not None)
-        assert controller.snapshot.last_error is not None
-        assert "自动日志写入失败：磁盘已满" in caplog.text
-    finally:
-        controller.close(force=True)
-
-
 def test_controller_reports_open_failure_without_losing_config() -> None:
     transport = FakeTransport(open_error=PortBusyError("端口已被占用。"))
     snapshots = SnapshotRecorder()
-    controller = _controller(transport, snapshots=snapshots)
+    controller = build_controller(transport, snapshots=snapshots)
 
     controller.connect()
 
@@ -207,7 +45,7 @@ def test_controller_reports_open_failure_without_losing_config() -> None:
 def test_controller_reports_fatal_io_error_as_disconnected_snapshot() -> None:
     transport = FakeTransport(read_error=TransportIOError("设备断开。"))
     snapshots = SnapshotRecorder()
-    controller = _controller(transport, snapshots=snapshots)
+    controller = build_controller(transport, snapshots=snapshots)
     controller.connect()
     assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
 
@@ -221,7 +59,7 @@ def test_controller_reports_fatal_io_error_as_disconnected_snapshot() -> None:
 
 def test_controller_rejects_invalid_operations() -> None:
     empty_config = SerialConfig(port="")
-    controller = _controller(FakeTransport(), config=empty_config)
+    controller = build_controller(FakeTransport(), config=empty_config)
 
     with pytest.raises(ValidationError):
         controller.connect()
@@ -231,25 +69,10 @@ def test_controller_rejects_invalid_operations() -> None:
         controller.disconnect(timeout=0)
 
 
-def test_controller_clear_buffer_keeps_counters() -> None:
-    transport = FakeTransport()
-    snapshots = SnapshotRecorder()
-    controller = _controller(transport, snapshots=snapshots)
-    controller.connect()
-    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
-
-    removed = controller.clear_buffer()
-
-    assert removed == 1
-    assert controller.records == ()
-    assert controller.snapshot.rx_bytes == 0
-    assert controller.disconnect()
-
-
 def test_controller_requires_force_to_close_active_session() -> None:
     transport = FakeTransport()
     snapshots = SnapshotRecorder()
-    controller = _controller(transport, snapshots=snapshots)
+    controller = build_controller(transport, snapshots=snapshots)
     controller.connect()
     assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
 
@@ -264,7 +87,7 @@ def test_controller_requires_force_to_close_active_session() -> None:
 def test_controller_set_line_state() -> None:
     transport = FakeTransport()
     snapshots = SnapshotRecorder()
-    controller = _controller(transport, snapshots=snapshots)
+    controller = build_controller(transport, snapshots=snapshots)
     controller.connect()
     assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CONNECTED)
 
@@ -321,7 +144,7 @@ def test_controller_rejects_blank_title() -> None:
 def test_controller_rejects_duplicate_connect_and_exposes_title() -> None:
     transport = FakeTransport()
     snapshots = SnapshotRecorder()
-    controller = _controller(transport, snapshots=snapshots)
+    controller = build_controller(transport, snapshots=snapshots)
     assert controller.title == "测试会话"
 
     controller.connect()
@@ -332,11 +155,11 @@ def test_controller_rejects_duplicate_connect_and_exposes_title() -> None:
 
 
 def test_disconnect_is_idempotent_and_rejects_connecting_state() -> None:
-    idle = _controller(FakeTransport())
+    idle = build_controller(FakeTransport())
     assert idle.disconnect()
 
     transport = BlockingOpenTransport()
-    controller = _controller(transport)
+    controller = build_controller(transport)
     controller.connect()
     assert transport.open_started.wait(1.0)
     with pytest.raises(InvalidStateTransitionError):
@@ -368,7 +191,7 @@ def test_disconnect_timeout_transitions_to_error_without_leaking_thread() -> Non
 
 
 def test_controller_callback_branch_guards() -> None:
-    controller = _controller(FakeTransport())
+    controller = build_controller(FakeTransport())
     config = SerialConfig(port="COM1")
 
     controller.on_opened(config)
@@ -382,17 +205,27 @@ def test_controller_callback_branch_guards() -> None:
     assert controller.records[-1].text == "second"
 
 
-def test_controller_force_close_without_worker_and_missing_worker_error() -> None:
-    controller = _controller(FakeTransport())
+def test_controller_force_close_without_worker_rejects_commands() -> None:
+    controller = build_controller(FakeTransport())
     controller.close()
     assert controller.state is SessionState.CLOSED
+    with pytest.raises(InvalidStateTransitionError):
+        controller._worker_for("send")
+
+
+def test_controller_worker_gate_reports_missing_worker_when_connected() -> None:
+    # 制造“线程已不在但 on_stopped 尚未清理”的窗口，验证防御分支。
+    controller = build_controller(FakeTransport())
+    controller._state_machine.connect()
+    controller._state_machine.mark_connected()
+
     with pytest.raises(TransportIOError):
-        controller._require_worker()
+        controller._worker_for("send")
 
 
 def test_controller_rename_trims_title_and_broadcasts_snapshot() -> None:
     snapshots = SnapshotRecorder()
-    controller = _controller(FakeTransport(), snapshots=snapshots)
+    controller = build_controller(FakeTransport(), snapshots=snapshots)
 
     controller.rename("  水泵  ")
 
@@ -401,7 +234,7 @@ def test_controller_rename_trims_title_and_broadcasts_snapshot() -> None:
 
 
 def test_controller_rename_rejects_empty_and_too_long_titles() -> None:
-    controller = _controller(FakeTransport())
+    controller = build_controller(FakeTransport())
 
     with pytest.raises(ValidationError, match="会话名称不能为空"):
         controller.rename("   ")
@@ -413,7 +246,7 @@ def test_controller_rename_rejects_empty_and_too_long_titles() -> None:
 
 def test_controller_rename_to_same_title_does_not_broadcast() -> None:
     snapshots = SnapshotRecorder()
-    controller = _controller(FakeTransport(), snapshots=snapshots)
+    controller = build_controller(FakeTransport(), snapshots=snapshots)
     snapshots.snapshots.clear()
 
     controller.rename("测试会话")
