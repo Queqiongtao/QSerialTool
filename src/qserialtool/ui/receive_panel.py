@@ -385,3 +385,7 @@ class ReceivePanel(QWidget):
         if self._terminal_mode:
             self._screen = None
             self.render_records()
+
+    def request_clear(self) -> None:
+        """请求清空接收区；走与“清屏”按钮相同的确认与重置流程。"""
+        self._clear()

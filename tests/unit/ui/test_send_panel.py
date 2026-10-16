@@ -2,6 +2,8 @@
 
 from threading import Event
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QMessageBox
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
@@ -94,5 +96,69 @@ def test_send_panel_send_content_uses_mode_and_newline(
     assert not panel.send_content("GG")
     assert warnings
     assert panel.history == ("ping", "AA 01")
+
+    controller.disconnect()
+
+
+def _panel_with_history(
+    qtbot: object,
+    transport: FakeTransport,
+    history: tuple[str, ...],
+) -> tuple[SessionController, SendPanel]:
+    controller, _ = _connected_controller(transport)
+    preferences = SessionPreferences(
+        title="COM1",
+        config=controller.config,
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+        send_history=history,
+    )
+    panel = SendPanel(controller=controller, preferences=preferences)
+    qtbot.addWidget(panel)
+    return controller, panel
+
+
+def test_send_editor_arrows_navigate_history_and_restore_draft(qtbot: object) -> None:
+    controller, panel = _panel_with_history(qtbot, FakeTransport(), ("old", "ping"))
+    panel.editor.setPlainText("draft")
+    cursor = panel.editor.textCursor()
+    cursor.setPosition(2)
+    panel.editor.setTextCursor(cursor)
+
+    QTest.keyClick(panel.editor, Qt.Key.Key_Up)
+    assert panel.editor.toPlainText() == "ping"
+    QTest.keyClick(panel.editor, Qt.Key.Key_Up)
+    assert panel.editor.toPlainText() == "old"
+    QTest.keyClick(panel.editor, Qt.Key.Key_Up)
+    assert panel.editor.toPlainText() == "old"
+
+    QTest.keyClick(panel.editor, Qt.Key.Key_Down)
+    assert panel.editor.toPlainText() == "ping"
+    QTest.keyClick(panel.editor, Qt.Key.Key_Down)
+    assert panel.editor.toPlainText() == "draft"
+    assert panel.editor.textCursor().position() == 2
+    assert panel.history == ("old", "ping")
+
+    controller.disconnect()
+
+
+def test_send_editor_arrows_keep_caret_in_multiline_text(qtbot: object) -> None:
+    controller, panel = _panel_with_history(qtbot, FakeTransport(), ("old",))
+    panel.editor.setPlainText("line1\nline2\nline3")
+    cursor = panel.editor.textCursor()
+    cursor.setPosition(6)
+    panel.editor.setTextCursor(cursor)
+
+    # 多行文本中间的方向键保持默认的光标移动，不触发历史浏览。
+    QTest.keyClick(panel.editor, Qt.Key.Key_Up)
+    assert panel.editor.toPlainText() == "line1\nline2\nline3"
+    assert panel.editor.textCursor().blockNumber() == 0
+
+    QTest.keyClick(panel.editor, Qt.Key.Key_Down)
+    assert panel.editor.toPlainText() == "line1\nline2\nline3"
+    assert panel.editor.textCursor().blockNumber() == 1
 
     controller.disconnect()

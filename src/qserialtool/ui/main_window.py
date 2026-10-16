@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
             callbacks=MainActionCallbacks(
                 new_session=self._new_session,
                 close_current=lambda: self._close_tab(self.tabs.currentIndex()),
+                clear_current=self._clear_current_receive,
                 zoom_font=self._zoom_font,
                 reset_font_size=self._reset_font_size,
                 show_help=self._show_help,
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         self.font_reset_action = actions.font_reset_action
         self.help_action = actions.help_action
         self.about_action = actions.about_action
+        self.clear_action = actions.clear_action
         self._header_tools = actions.header_tools
 
     def _show_help(self) -> None:
@@ -287,6 +289,12 @@ class MainWindow(QMainWindow):
         # 释放整棵控件树、端口轮询定时器和该会话最多 32 MiB 的记录缓冲。
         widget.deleteLater()
         self._schedule_save()
+
+    def _clear_current_receive(self) -> None:
+        """清空当前标签的接收区；非空缓冲会先确认。"""
+        widget = self.tabs.currentWidget()
+        if isinstance(widget, SessionTab):
+            widget.receive_panel.request_clear()
 
     def _theme_changed(self) -> None:
         selected = self.theme_combo.currentData()

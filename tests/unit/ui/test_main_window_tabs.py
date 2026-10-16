@@ -134,6 +134,44 @@ def test_status_indicator_tracks_session_state(qtbot: object, monkeypatch: objec
         window.close()
 
 
+def test_clear_receive_action_shortcut_and_confirmation(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+    questions: list[object] = []
+
+    def fake_question(*args: object, **kwargs: object) -> QMessageBox.StandardButton:
+        questions.append(args)
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", fake_question)
+
+    try:
+        action = next(item for item in window.main_menu.actions() if item.text() == "清空接收区")
+        assert action.shortcut().toString() == "Ctrl+L"
+        assert action in window.actions()
+
+        # 空缓冲不弹确认，直接走清空流程。
+        action.trigger()
+        assert questions == []
+        assert tab.receive_panel.output.toPlainText() == ""
+
+        connect_session(qtbot, tab)
+        transport.push_read(b"payload")
+        qtbot.waitUntil(lambda: "payload" in tab.receive_panel.output.toPlainText(), timeout=2000)
+
+        action.trigger()
+        assert questions
+        qtbot.waitUntil(lambda: tab.controller.records == (), timeout=2000)
+        assert tab.receive_panel.output.toPlainText() == ""
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_tab_double_click_renames_session(qtbot: object, monkeypatch: object) -> None:
     transport = FakeTransport()
     store = RecordingStore()

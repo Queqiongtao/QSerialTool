@@ -1,7 +1,7 @@
 """发送编辑器、历史记录和周期发送面板。"""
 
-from PySide6.QtCore import QSignalBlocker, QTimer, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QObject, QSignalBlocker, Qt, QTimer, Signal
+from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -54,6 +54,9 @@ class SendPanel(QWidget):
         self._history: list[str] = []
         self._connected = False
         self._loading = False
+        self._history_index: int | None = None
+        self._history_draft = ""
+        self._history_cursor = 0
         self._build_ui()
         self._connect_changes()
         if preferences is not None:
@@ -136,6 +139,7 @@ class SendPanel(QWidget):
         self.editor.setFont(data_font())
         shortcut = QShortcut(QKeySequence("Ctrl+Return"), self.editor)
         shortcut.activated.connect(self.send)
+        self.editor.installEventFilter(self)
         return self.editor
 
     def _connect_changes(self) -> None:
@@ -160,6 +164,7 @@ class SendPanel(QWidget):
                 self.newline_combo.setCurrentIndex(max(newline_index, 0))
                 self.interval_spin.setValue(preferences.periodic_interval_ms)
             self._history = list(preferences.send_history)
+            self._history_index = None
             self._update_history_combo()
         finally:
             self._loading = False
@@ -232,6 +237,7 @@ class SendPanel(QWidget):
         return append_line_ending(data, self.line_ending)
 
     def _remember_history(self, content: str) -> None:
+        self._history_index = None
         if self._history and self._history[-1] == content:
             return
         self._history.append(content)
@@ -247,11 +253,55 @@ class SendPanel(QWidget):
                 self.history_combo.addItem(item.replace("\n", "\\n")[:80], item)
 
     def _history_selected(self, index: int) -> None:
+        self._history_index = None
         if index <= 0:
             return
         content = self.history_combo.itemData(index)
         if isinstance(content, str):
             self.editor.setPlainText(content)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """在发送编辑器首行/末行用上下键浏览发送历史，其余按键交给默认处理。"""
+        if (
+            watched is self.editor
+            and event.type() == QEvent.Type.KeyPress
+            and isinstance(event, QKeyEvent)
+            and event.key() in {Qt.Key.Key_Up, Qt.Key.Key_Down}
+            and not event.modifiers()
+        ):
+            cursor = self.editor.textCursor()
+            at_first = cursor.blockNumber() == 0
+            at_last = cursor.blockNumber() == self.editor.document().blockCount() - 1
+            if not cursor.hasSelection() and (
+                (event.key() == Qt.Key.Key_Up and at_first)
+                or (event.key() == Qt.Key.Key_Down and at_last)
+            ):
+                self._history_move(older=event.key() == Qt.Key.Key_Up)
+                return True
+        return super().eventFilter(watched, event)
+
+    def _history_move(self, older: bool) -> None:
+        """浏览发送历史；越过最新条目时恢复进入浏览前的草稿与光标位置。"""
+        if not self._history:
+            return
+        if self._history_index is None:
+            self._history_draft = self.editor.toPlainText()
+            self._history_cursor = self.editor.textCursor().position()
+            self._history_index = len(self._history)
+        if older:
+            self._history_index = max(0, self._history_index - 1)
+        else:
+            self._history_index = min(len(self._history), self._history_index + 1)
+        if self._history_index >= len(self._history):
+            text = self._history_draft
+            position = self._history_cursor
+        else:
+            text = self._history[self._history_index]
+            position = len(text)
+        self.editor.setPlainText(text)
+        cursor = self.editor.textCursor()
+        cursor.setPosition(min(position, len(text)))
+        self.editor.setTextCursor(cursor)
 
     def _settings_changed(self) -> None:
         if not self._loading:

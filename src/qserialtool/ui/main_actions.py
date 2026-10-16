@@ -34,6 +34,7 @@ class MainActionCallbacks:
 
     new_session: Callable[[], None]
     close_current: Callable[[], None]
+    clear_current: Callable[[], None]
     zoom_font: Callable[[int], None]
     reset_font_size: Callable[[], None]
     show_help: Callable[[], None]
@@ -58,6 +59,7 @@ class MainActions:
     font_reset_action: QAction
     help_action: QAction
     about_action: QAction
+    clear_action: QAction
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +91,9 @@ def build_main_actions(
     close_action = QAction("关闭当前会话", window)
     close_action.setShortcut("Ctrl+W")
     close_action.triggered.connect(callbacks.close_current)
+    clear_action = QAction("清空接收区", window)
+    clear_action.setShortcut("Ctrl+L")
+    clear_action.triggered.connect(callbacks.clear_current)
     exit_action = QAction("退出", window)
     exit_action.setShortcut("Ctrl+Q")
     exit_action.triggered.connect(window.close)
@@ -103,6 +108,7 @@ def build_main_actions(
     main_menu = QMenu(window)
     main_menu.addAction(new_action)
     main_menu.addAction(close_action)
+    main_menu.addAction(clear_action)
     main_menu.addMenu(font_actions.menu)
     main_menu.addSeparator()
     main_menu.addAction(help_action)
@@ -112,6 +118,7 @@ def build_main_actions(
     for action in (
         new_action,
         close_action,
+        clear_action,
         exit_action,
         help_action,
         font_actions.zoom_in,
@@ -152,6 +159,7 @@ def build_main_actions(
         font_reset_action=font_actions.reset,
         help_action=help_action,
         about_action=about_action,
+        clear_action=clear_action,
     )
 
 
@@ -160,7 +168,7 @@ def _build_menu_button(window: QWidget, menu: QMenu) -> QToolButton:
     button = QToolButton(window)
     button.setText("☰")
     button.setAutoRaise(True)
-    button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 使用帮助 / 关于 / 退出")
+    button.setToolTip("新建会话 / 关闭当前会话 / 清空接收区 / 字号 / 使用帮助 / 关于 / 退出")
     button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
     button.setMenu(menu)
     return button
