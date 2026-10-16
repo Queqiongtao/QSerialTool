@@ -32,6 +32,7 @@ from qserialtool.domain import (
 )
 from qserialtool.ui.about_dialog import AboutDialog
 from qserialtool.ui.app_icon import app_icon
+from qserialtool.ui.empty_state import build_empty_state
 from qserialtool.ui.help_window import HelpWindow
 from qserialtool.ui.icons import state_icon
 from qserialtool.ui.main_actions import (
@@ -97,6 +98,8 @@ class MainWindow(QMainWindow):
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
+        self.tabs.installEventFilter(self)
+        self._empty_state = build_empty_state(self.tabs)
         self.setCentralWidget(self.tabs)
         self.setWindowTitle(f"QSerialTool {__version__}")
         self.setWindowIcon(app_icon())
@@ -109,6 +112,7 @@ class MainWindow(QMainWindow):
             enable_custom_title_bar(self)
         self._build_actions()
         self._restore_or_create_sessions(initial_config)
+        self._sync_empty_state()
 
     def _build_actions(self) -> None:
         actions = build_main_actions(
@@ -226,11 +230,12 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(index)
         # 全局样式表会在挂载时重新 polish 控件并覆盖之前设置的字体，必须在其后重新应用。
         tab.set_data_font_size(self._data_font_size)
+        self._sync_empty_state()
         self._schedule_save()
         return tab
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """在标签栏上处理双击重命名与右键菜单。"""
+        """标签栏上处理双击重命名与右键菜单；标签控件尺寸变化时跟随摆放空态引导。"""
         bar = self.tabs.tabBar()
         if watched is bar:
             if isinstance(event, QMouseEvent) and event.button() is Qt.MouseButton.LeftButton:
@@ -245,6 +250,8 @@ class MainWindow(QMainWindow):
                     self.tabs.setCurrentIndex(index)
                     self._show_tab_menu(index, event.globalPos())
                     return True
+        elif watched is self.tabs and event.type() is QEvent.Type.Resize:
+            self._place_empty_state()
         return super().eventFilter(watched, event)
 
     def nativeEvent(self, event_type: QByteArray, message: int) -> object:
@@ -321,6 +328,19 @@ class MainWindow(QMainWindow):
             if isinstance(widget, SessionTab):
                 self.tabs.setTabIcon(index, state_icon(widget.controller.state))
 
+    def _sync_empty_state(self) -> None:
+        """标签数量变化后切换空态引导的显隐并重新摆放。"""
+        self._place_empty_state()
+        if self.tabs.count() == 0:
+            # 后创建的兄弟控件默认在上层，raise 防御样式表重刷或系统主题事件改变层级。
+            self._empty_state.raise_()
+        self._empty_state.setVisible(self.tabs.count() == 0)
+
+    def _place_empty_state(self) -> None:
+        """把空态引导摆到标签栏下方的内容区，随标签控件尺寸变化自动跟随。"""
+        top = self.tab_bar.height()
+        self._empty_state.setGeometry(0, top, self.tabs.width(), self.tabs.height() - top)
+
     def _close_tab(self, index: int) -> None:
         if index < 0:
             return
@@ -334,6 +354,7 @@ class MainWindow(QMainWindow):
         # removeTab 只把控件移出标签栏，它仍挂在 QTabWidget 下；显式排队销毁，
         # 释放整棵控件树、端口轮询定时器和该会话最多 32 MiB 的记录缓冲。
         widget.deleteLater()
+        self._sync_empty_state()
         self._schedule_save()
 
     def _clear_current_receive(self) -> None:

@@ -365,3 +365,32 @@ def test_sidebar_width_default_and_clamps(qtbot: object) -> None:
         assert tab.layout_state()[1] == 360
     finally:
         window.close()
+
+
+def test_empty_state_guides_until_new_session_added(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    label = window._empty_state
+
+    try:
+        assert not label.isVisible()
+
+        window._close_tab(0)
+        assert window.tabs.count() == 0
+        assert label.isVisible()
+        assert window.tab_bar.height() > 0
+        assert window.tab_bar.new_tab_button.isVisible()
+        assert window._header_tools.height() > 0
+        assert label.y() == window.tab_bar.height()
+        assert "Ctrl+T" in label.text()
+
+        window.resize(1000, 700)
+        qtbot.waitUntil(
+            lambda: label.width() == window.tabs.width() and label.y() == window.tab_bar.height(),
+            timeout=2000,
+        )
+
+        window.new_session()
+        assert not label.isVisible()
+    finally:
+        window.close()

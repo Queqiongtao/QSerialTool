@@ -26,7 +26,8 @@ QLabel#statusText {{
     color: {c.muted};
     background: transparent;
 }}
-/* 接收区居中空态提示（ReceivePanel 的 empty_state 覆盖标签）。 */
+/* 居中空态提示：接收区“暂无数据”（ReceivePanel 的 empty_state 覆盖标签）
+   与窗口空标签引导（ui/empty_state.py）共用。 */
 QLabel#emptyState {{
     color: {c.muted};
     background: transparent;

@@ -27,6 +27,8 @@ class SessionTabBar(QTabBar):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # 最近一次非空布局观察到的行高；空标签时用它撑住标签行（见 sizeHint()）。
+        self._row_height = 0
         self.new_tab_button = QToolButton(self)
         # objectName 供 style_qss.py 的实心强调色规则选中；白色图标位于
         # 两侧主题同值的 accent_fill 底上，不再受样式表重刷字体的影响。
@@ -38,6 +40,19 @@ class SessionTabBar(QTabBar):
         self.new_tab_button.setToolTip("新建会话 (Ctrl+T)")
         self.new_tab_button.clicked.connect(self._on_new_tab_clicked)
         self._reposition_new_tab_button()
+
+    def sizeHint(self) -> QSize:
+        """空标签时沿用最近的行高，避免整个标签行（含角落控件）被压成零高。
+
+        QTabWidget 在标签数为 0 时按空 QTabBar 的尺寸（0 高）布局，
+        标签行会连同“+”、“☰”和窗口按钮一起塌陷；这里在空态返回
+        最近观察到的行高，空窗口引导期间头部控件保持可见可点。
+        """
+        hint = super().sizeHint()
+        if hint.height() > 0:
+            self._row_height = hint.height()
+            return hint
+        return QSize(hint.width(), self._row_height or hint.height())
 
     def tabLayoutChange(self) -> None:
         """标签增删、改标题或拖动后重新摆放“+”按钮。"""
