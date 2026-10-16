@@ -4,20 +4,16 @@ import logging
 from collections.abc import Callable
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QContextMenuEvent, QKeySequence, QMouseEvent
+from PySide6.QtGui import QCloseEvent, QContextMenuEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
     QDialog,
-    QHBoxLayout,
     QInputDialog,
-    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
     QTabWidget,
-    QToolButton,
     QWidget,
 )
 
@@ -37,22 +33,19 @@ from qserialtool.domain import (
 from qserialtool.ui.about_dialog import AboutDialog
 from qserialtool.ui.app_icon import app_icon
 from qserialtool.ui.help_window import HelpWindow
+from qserialtool.ui.main_actions import (
+    MainActionCallbacks,
+    apply_data_font_size,
+    build_main_actions,
+    next_font_size,
+    refresh_session_tabs,
+    show_and_raise,
+)
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
-from qserialtool.ui.theme_manager import (
-    CONTROL_HEIGHT_PX,
-    DATA_FONT_PRESETS,
-    apply_theme,
-    data_font,
-)
+from qserialtool.ui.theme_manager import apply_theme
 
 logger = logging.getLogger(__name__)
-
-_THEMES: tuple[tuple[str, Theme], ...] = (
-    ("跟随系统", "system"),
-    ("浅色", "light"),
-    ("深色", "dark"),
-)
 
 
 class MainWindow(QMainWindow):
@@ -101,146 +94,45 @@ class MainWindow(QMainWindow):
         self._restore_or_create_sessions(initial_config)
 
     def _build_actions(self) -> None:
-        new_action = QAction("新建会话", self)
-        new_action.setShortcut("Ctrl+T")
-        new_action.triggered.connect(self._new_session)
-        close_action = QAction("关闭当前会话", self)
-        close_action.setShortcut("Ctrl+W")
-        close_action.triggered.connect(lambda: self._close_tab(self.tabs.currentIndex()))
-        exit_action = QAction("退出", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-
-        self._build_font_actions()
-        self._build_help_actions()
-
-        self.main_menu = QMenu(self)
-        self.main_menu.addAction(new_action)
-        self.main_menu.addAction(close_action)
-        self.main_menu.addMenu(self.font_menu)
-        self.main_menu.addSeparator()
-        self.main_menu.addAction(self.help_action)
-        self.main_menu.addAction(self.about_action)
-        self.main_menu.addSeparator()
-        self.main_menu.addAction(exit_action)
-        for action in (
-            new_action,
-            close_action,
-            exit_action,
-            self.help_action,
-            self.font_zoom_in_action,
-            self.font_zoom_out_action,
-            self.font_reset_action,
-        ):
-            # 去掉菜单栏和工具栏后，动作必须挂到窗口上，快捷键才会继续生效。
-            self.addAction(action)
-
-        self.menu_button = QToolButton()
-        self.menu_button.setText("☰")
-        self.menu_button.setAutoRaise(True)
-        self.menu_button.setToolTip("新建会话 / 关闭当前会话 / 字号 / 使用帮助 / 关于 / 退出")
-        self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.menu_button.setMenu(self.main_menu)
-
-        self.theme_combo = self._build_theme_combo()
-
-        self.font_combo = self._build_font_combo()
-
-        self.new_tab_button = QToolButton()
-        self.new_tab_button.setText("+")
-        self.new_tab_button.setAutoRaise(True)
-        self.new_tab_button.setToolTip("新建会话 (Ctrl+T)")
-        self.new_tab_button.clicked.connect(self._new_session)
-
-        self.tabs.setDocumentMode(True)
-        self._header_tools = QWidget()
-        header_layout = QHBoxLayout(self._header_tools)
-        header_layout.setContentsMargins(2, 0, 4, 0)
-        header_layout.setSpacing(4)
-        header_layout.addWidget(QLabel("主题"))
-        header_layout.addWidget(self.theme_combo)
-        header_layout.addWidget(QLabel("字号"))
-        header_layout.addWidget(self.font_combo)
-        header_layout.addWidget(self.new_tab_button)
-        header_layout.addWidget(self.menu_button)
-        self.tabs.setCornerWidget(self._header_tools, Qt.Corner.TopRightCorner)
-        # 设置角落控件会重新挂载父级并隐藏控件，必须显式显示。
-        self._header_tools.show()
-        self.tabs.tabBar().installEventFilter(self)
-
-    def _build_font_combo(self) -> QComboBox:
-        """构造全局字号下拉框，首项为跟随系统默认。"""
-        combo = QComboBox()
-        combo.addItem("默认", 0)
-        for size in DATA_FONT_PRESETS:
-            combo.addItem(str(size), size)
-        index = combo.findData(self._data_font_size)
-        combo.setCurrentIndex(index if index >= 0 else 0)
-        combo.setFixedHeight(CONTROL_HEIGHT_PX)
-        combo.setMinimumWidth(64)
-        combo.setToolTip("接收区与发送编辑器的数据字号")
-        combo.currentIndexChanged.connect(self._font_size_changed)
-        return combo
-
-    def _build_theme_combo(self) -> QComboBox:
-        """构造全局主题下拉框。"""
-        combo = QComboBox()
-        for label, value in _THEMES:
-            combo.addItem(label, value)
-        index = combo.findData(self._theme)
-        combo.setCurrentIndex(index if index >= 0 else 0)
-        combo.setFixedHeight(CONTROL_HEIGHT_PX)
-        combo.setMinimumWidth(88)
-        combo.setToolTip("跟随系统 / 浅色 / 深色")
-        combo.currentIndexChanged.connect(self._theme_changed)
-        return combo
-
-    def _build_font_actions(self) -> None:
-        """构造字号缩放动作与“字号”子菜单。"""
-        self.font_zoom_in_action = QAction("放大", self)
-        self.font_zoom_in_action.setShortcuts([QKeySequence("Ctrl+="), QKeySequence("Ctrl++")])
-        self.font_zoom_in_action.triggered.connect(lambda: self._zoom_font(1))
-        self.font_zoom_out_action = QAction("缩小", self)
-        self.font_zoom_out_action.setShortcut("Ctrl+-")
-        self.font_zoom_out_action.triggered.connect(lambda: self._zoom_font(-1))
-        self.font_reset_action = QAction("恢复默认", self)
-        self.font_reset_action.setShortcut("Ctrl+0")
-        self.font_reset_action.triggered.connect(self._reset_font_size)
-        self.font_menu = QMenu("字号", self)
-        self.font_menu.addAction(self.font_zoom_in_action)
-        self.font_menu.addAction(self.font_zoom_out_action)
-        self.font_menu.addAction(self.font_reset_action)
-
-    def _build_help_actions(self) -> None:
-        """构造“使用帮助”和“关于 QSerialTool”动作。"""
-        self.help_action = QAction("使用帮助", self)
-        self.help_action.setShortcut(QKeySequence("F1"))
-        self.help_action.triggered.connect(self._show_help)
-        self.about_action = QAction("关于 QSerialTool", self)
-        self.about_action.triggered.connect(self._show_about)
+        actions = build_main_actions(
+            self,
+            self.tabs,
+            theme=self._theme,
+            data_font_size=self._data_font_size,
+            callbacks=MainActionCallbacks(
+                new_session=self._new_session,
+                close_current=lambda: self._close_tab(self.tabs.currentIndex()),
+                zoom_font=self._zoom_font,
+                reset_font_size=self._reset_font_size,
+                show_help=self._show_help,
+                show_about=self._show_about,
+                font_size_changed=self._font_size_changed,
+                theme_changed=self._theme_changed,
+            ),
+        )
+        self.main_menu = actions.main_menu
+        self.menu_button = actions.menu_button
+        self.theme_combo = actions.theme_combo
+        self.font_combo = actions.font_combo
+        self.new_tab_button = actions.new_tab_button
+        self.font_menu = actions.font_menu
+        self.font_zoom_in_action = actions.font_zoom_in_action
+        self.font_zoom_out_action = actions.font_zoom_out_action
+        self.font_reset_action = actions.font_reset_action
+        self.help_action = actions.help_action
+        self.about_action = actions.about_action
+        self._header_tools = actions.header_tools
 
     def _show_help(self) -> None:
         """打开或前置使用帮助窗口。"""
-        if self._help_window is None:
-            self._help_window = HelpWindow(self)
-        self._help_window.show()
-        self._help_window.raise_()
-        self._help_window.activateWindow()
+        self._help_window = show_and_raise(self._help_window, lambda: HelpWindow(self))
 
     def _show_about(self) -> None:
         """打开或前置关于对话框。"""
-        if self._about_dialog is None:
-            self._about_dialog = AboutDialog(self)
-        self._about_dialog.show()
-        self._about_dialog.raise_()
-        self._about_dialog.activateWindow()
+        self._about_dialog = show_and_raise(self._about_dialog, lambda: AboutDialog(self))
 
     def _new_session(self, _checked: bool = False) -> None:
-        """标签栏“+”按钮和“☰”菜单共用的零参数入口。
-
-        QAction 与 QToolButton 的信号会带上一个布尔状态，直接连接 ``new_session``
-        会把它当成 ``preferences`` 传入并报错，因此在此显式吞掉该参数。
-        """
+        """标签栏“+”与“☰”菜单的零参数入口；信号附带的布尔状态在此吞掉。"""
         self.new_session()
 
     def _restore_or_create_sessions(self, config: AppConfig | None) -> None:
@@ -404,12 +296,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, self._theme)
-        for index in range(self.tabs.count()):
-            widget = self.tabs.widget(index)
-            if isinstance(widget, SessionTab):
-                # apply_theme() 重新应用样式表会重置数据区字体，主题切换后必须补一次。
-                widget.set_data_font_size(self._data_font_size)
-                widget.refresh_theme()
+        refresh_session_tabs(self.tabs, self._data_font_size)
         self._schedule_save()
 
     def _font_size_changed(self) -> None:
@@ -417,27 +304,12 @@ class MainWindow(QMainWindow):
         if not isinstance(size, int):
             return
         self._data_font_size = size
-        for index in range(self.tabs.count()):
-            widget = self.tabs.widget(index)
-            if isinstance(widget, SessionTab):
-                widget.set_data_font_size(size)
+        apply_data_font_size(self.tabs, size)
         self._schedule_save()
 
     def _zoom_font(self, step: int) -> None:
         """按预设档位放大或缩小全局字号，到达边界后保持不变。"""
-        presets = DATA_FONT_PRESETS
-        size = self.font_combo.currentData()
-        if isinstance(size, int) and size > 0:
-            effective = size
-        else:
-            system_size = data_font().pointSize()
-            effective = system_size if system_size > 0 else presets[0]
-        if step > 0:
-            candidates = [value for value in presets if value > effective]
-            target = candidates[0] if candidates else presets[-1]
-        else:
-            candidates = [value for value in presets if value < effective]
-            target = candidates[-1] if candidates else presets[0]
+        target = next_font_size(self.font_combo.currentData(), step)
         index = self.font_combo.findData(target)
         if index >= 0:
             self.font_combo.setCurrentIndex(index)
