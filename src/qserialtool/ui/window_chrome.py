@@ -2,12 +2,14 @@
 
 Windows 下去掉系统标题栏（``WS_CAPTION``）但保留可缩放边框（``WS_THICKFRAME``），
 因此拖动、边缘缩放、Aero Snap、双击最大化/还原、右键系统菜单与 DWM 阴影都保持
-系统行为；本模块只做两处最小原生处理：
+系统行为；本模块只做三处最小原生处理：
 
 - ``WM_NCCALCSIZE``：最大化时把客户区固定为显示器工作区，避免露出边框缝隙或
   被任务栏遮挡（普通状态交给默认处理，客户区即窗口矩形去掉原生边框）。
 - ``WM_NCHITTEST``：标签行空白处返回 ``HTCAPTION``，变成可拖动区域；标签本身、
   “+”新建按钮、滚动按钮及其他控件交回默认处理，点击仍然正常。
+- DWM 窗口属性：深色主题下启用沉浸式深色边框并声明 Win11 圆角，避免系统按
+  浅色绘制边框而露出白色窗缘。
 
 原生钩子只在 Windows 桌面平台生效；离屏平台与其它系统回退系统标题栏，测试环境
 仍能看到窗口按钮控件树。
@@ -43,6 +45,12 @@ _WM_NCCALCSIZE = 0x0083
 _WM_NCHITTEST = 0x0084
 _HTCAPTION = 2
 _MONITOR_DEFAULTTONEAREST = 2
+
+# DWM 主题化窗口属性：深色沉浸式边框（Win10 1903 前后属性 id 不同）与 Win11 圆角。
+_DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+_DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
+_DWMWA_WINDOW_CORNER_PREFERENCE = 33
+_DWMWCP_ROUND = 2
 
 _GENERIC_MSG = b"windows_generic_MSG"
 
@@ -110,6 +118,15 @@ class _Api:
         user32.MonitorFromWindow.argtypes = (ctypes.c_void_p, ctypes.c_uint)
         user32.GetMonitorInfoW.argtypes = (ctypes.c_void_p, ctypes.POINTER(_MONITORINFO))
         user32.ScreenToClient.argtypes = (ctypes.c_void_p, ctypes.POINTER(_POINT))
+        dwmapi = ctypes.windll.dwmapi
+        self.dwm_set_window_attribute = dwmapi.DwmSetWindowAttribute
+        self.dwm_set_window_attribute.restype = ctypes.HRESULT
+        self.dwm_set_window_attribute.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.c_uint,
+        )
 
 
 @lru_cache(maxsize=1)
@@ -203,6 +220,48 @@ def enable_custom_title_bar(window: QWidget) -> None:
         0,
         _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER | _SWP_NOACTIVATE | _SWP_FRAMECHANGED,
     )
+
+
+def apply_window_theme(window: QWidget, *, is_dark: bool) -> None:
+    """按解析后的主题同步 DWM 边框观感：深色边框与 Win11 圆角。
+
+    保留 ``WS_THICKFRAME`` 后窗口边缘由 DWM 绘制，系统默认按浅色绘制，在深色
+    主题下会露出一圈白色窗缘；启用沉浸式深色属性后边框跟随主题。属性失败
+    （旧系统不支持该 id、离屏假窗口句柄或圆角偏好缺失）时静默降级，包括
+    ctypes 把失败 HRESULT 转成的 ``OSError``，不影响任何其它行为。
+    """
+    if not _WINDOWS:
+        return
+    hwnd = int(window.winId())
+    if hwnd == 0:
+        # 离屏等平台窗口没有真实句柄，DWM 调用必然失败，提前返回。
+        return
+    api = _api()
+    value = 1 if is_dark else 0
+    if not _set_dwm_dword(api, hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE, value):
+        # Win10 1903 之前的系统只认识旧的属性 id，任一成功即可。
+        _set_dwm_dword(api, hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, value)
+    # 圆角偏好仅 Windows 11 支持，旧系统返回错误码时忽略。
+    _set_dwm_dword(api, hwnd, _DWMWA_WINDOW_CORNER_PREFERENCE, _DWMWCP_ROUND)
+
+
+def _set_dwm_dword(api: _Api, hwnd: int, attribute: int, value: int) -> bool:
+    """写入一个 DWORD 型 DWM 窗口属性，返回是否被系统接受。
+
+    ctypes 的 restype 为 ``HRESULT`` 时失败返回值会被自动转换成 ``OSError``，
+    必须一并视为"属性未被接受"而不是向外抛出。
+    """
+    holder = ctypes.c_int(value)
+    try:
+        result = api.dwm_set_window_attribute(
+            hwnd,
+            attribute,
+            ctypes.cast(ctypes.byref(holder), ctypes.c_void_p),
+            ctypes.sizeof(holder),
+        )
+    except OSError:
+        return False
+    return result == 0
 
 
 def handle_native_event(

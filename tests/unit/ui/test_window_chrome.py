@@ -4,13 +4,15 @@ import sys
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 from tests.fixtures.fakes import FakeTransport
 from tests.fixtures.ui_helpers import build_window
 
+from qserialtool.ui import window_chrome
 from qserialtool.ui.window_chrome import (
     WINDOW_BUTTON_WIDTH_PX,
     WindowButtons,
+    apply_window_theme,
     handle_native_event,
     is_title_drag_point,
     uses_native_chrome,
@@ -171,3 +173,29 @@ def test_native_chrome_follows_platform_policy(qapp: object) -> None:
     if not _WINDOWS:
         pytest.skip("自定义标题栏仅在 Windows 上提供")
     assert uses_native_chrome() is (QApplication.platformName() != "offscreen")
+
+
+def test_apply_window_theme_tolerates_offscreen_and_real_handles(qtbot: object) -> None:
+    """离屏平台句柄无效时必须静默降级；真实 Windows 句柄能完整走通。"""
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+
+    try:
+        # 深浅主题来回应用必须安全返回：旧属性 id、圆角偏好不被支持时应静默降级。
+        apply_window_theme(window, is_dark=True)
+        apply_window_theme(window, is_dark=False)
+        apply_window_theme(window, is_dark=True)
+    finally:
+        window.close()
+
+
+def test_apply_window_theme_skips_native_calls_on_non_windows(
+    monkeypatch: object, qtbot: object
+) -> None:
+    monkeypatch.setattr(window_chrome, "_WINDOWS", False)
+    # 未创建原生窗口的控件：非 Windows 平台不应触碰 winId()。
+    naked = QWidget()
+    try:
+        window_chrome.apply_window_theme(naked, is_dark=True)
+    finally:
+        naked.deleteLater()

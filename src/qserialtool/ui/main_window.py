@@ -44,9 +44,10 @@ from qserialtool.ui.main_actions import (
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
 from qserialtool.ui.tab_bar import SessionTabBar
-from qserialtool.ui.theme_manager import apply_theme
+from qserialtool.ui.theme_manager import apply_theme, resolved_theme
 from qserialtool.ui.window_chrome import (
     WindowButtons,
+    apply_window_theme,
     enable_custom_title_bar,
     handle_native_event,
     is_windows,
@@ -159,6 +160,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, self._theme)
+        self._sync_window_chrome()
         if config is None or not config.sessions:
             self.new_session()
             return
@@ -327,8 +329,15 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, self._theme)
+        self._sync_window_chrome()
         refresh_session_tabs(self.tabs, self._data_font_size)
         self._schedule_save()
+
+    def _sync_window_chrome(self) -> None:
+        """按最近一次解析出的主题同步原生窗体观感（深色边框与圆角）。"""
+        if not uses_native_chrome():
+            return
+        apply_window_theme(self, is_dark=resolved_theme() == "dark")
 
     def _font_size_changed(self, size: int) -> None:
         """“字号”子菜单档位勾选后应用到全部标签并保存。"""
