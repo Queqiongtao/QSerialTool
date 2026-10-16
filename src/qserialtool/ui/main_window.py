@@ -33,6 +33,7 @@ from qserialtool.domain import (
 from qserialtool.ui.about_dialog import AboutDialog
 from qserialtool.ui.app_icon import app_icon
 from qserialtool.ui.help_window import HelpWindow
+from qserialtool.ui.icons import state_icon
 from qserialtool.ui.main_actions import (
     MainActionCallbacks,
     apply_data_font_size,
@@ -214,8 +215,13 @@ class MainWindow(QMainWindow):
         tab.preferences_changed.connect(self._schedule_save)
         index = self.tabs.addTab(tab, controller.title)
         self.tabs.setTabToolTip(index, controller.title)
+        # 初始快照在 SessionTab 构造时已经发出，此时先按控制器状态补一次图标。
+        self.tabs.setTabIcon(index, state_icon(controller.state))
         tab.title_changed.connect(
             lambda title, widget=tab: self._on_tab_title_changed(widget, title)
+        )
+        tab.state_changed.connect(
+            lambda state, widget=tab: self._on_tab_state_changed(widget, state)
         )
         self.tabs.setCurrentIndex(index)
         # 全局样式表会在挂载时重新 polish 控件并覆盖之前设置的字体，必须在其后重新应用。
@@ -302,6 +308,19 @@ class MainWindow(QMainWindow):
         self.tabs.setTabToolTip(index, title)
         self._schedule_save()
 
+    def _on_tab_state_changed(self, tab: SessionTab, state: SessionState) -> None:
+        """会话状态变化后刷新标签栏状态圆点。"""
+        index = self.tabs.indexOf(tab)
+        if index >= 0:
+            self.tabs.setTabIcon(index, state_icon(state))
+
+    def _refresh_tab_state_icons(self) -> None:
+        """主题切换后按新配色重绘所有标签的状态圆点。"""
+        for index in range(self.tabs.count()):
+            widget = self.tabs.widget(index)
+            if isinstance(widget, SessionTab):
+                self.tabs.setTabIcon(index, state_icon(widget.controller.state))
+
     def _close_tab(self, index: int) -> None:
         if index < 0:
             return
@@ -331,6 +350,7 @@ class MainWindow(QMainWindow):
             apply_theme(app, self._theme)
         self._sync_window_chrome()
         refresh_session_tabs(self.tabs, self._data_font_size)
+        self._refresh_tab_state_icons()
         self._schedule_save()
 
     def _sync_window_chrome(self) -> None:

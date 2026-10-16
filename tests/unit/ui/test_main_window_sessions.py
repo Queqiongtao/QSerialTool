@@ -1,6 +1,7 @@
 """测试主窗口的会话生命周期、连接收发与标签关闭。"""
 
 from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QMessageBox
 from shiboken6 import isValid
 from tests.fixtures.fakes import FakeTransport
@@ -12,6 +13,7 @@ from tests.fixtures.ui_helpers import (
 )
 
 from qserialtool.domain import DEFAULT_LINE_ENDING, SessionState
+from qserialtool.ui.theme_manager import data_colors
 
 
 def test_main_window_connects_sends_receives_and_disconnects(qtbot: object) -> None:
@@ -119,6 +121,53 @@ def test_close_tab_schedules_widget_destruction(qtbot: object) -> None:
     assert window.tabs.count() == 0
     assert not isValid(tab)
     window.close()
+
+
+def _tab_dot_color(window: object, index: int) -> str:
+    """取标签栏状态圆点图标中心像素的颜色名。"""
+    icon = window.tabs.tabIcon(index)
+    image = icon.pixmap(14, 14).toImage()
+    return image.pixelColor(image.width() // 2, image.height() // 2).name()
+
+
+def test_tab_icon_tracks_session_state(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        idle = QColor(data_colors().idle).name()
+        connected = QColor(data_colors().connected).name()
+        assert _tab_dot_color(window, 0) == idle
+
+        connect_session(qtbot, tab)
+        qtbot.waitUntil(lambda: _tab_dot_color(window, 0) == connected, timeout=2000)
+
+        disconnect_session(qtbot, tab)
+        qtbot.waitUntil(lambda: _tab_dot_color(window, 0) == idle, timeout=2000)
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_tab_icon_uses_theme_colors(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        light_idle = _tab_dot_color(window, 0)
+        theme_action = next(action for action in window.theme_actions if action.data() == "dark")
+        theme_action.setChecked(True)
+
+        dark_idle = QColor(data_colors().idle).name()
+        assert dark_idle != light_idle
+        qtbot.waitUntil(lambda: _tab_dot_color(window, 0) == dark_idle, timeout=2000)
+    finally:
+        theme_action = next(action for action in window.theme_actions if action.data() == "light")
+        theme_action.setChecked(True)
+        tab.controller.close(force=True)
+        window.close()
 
 
 def test_snapshot_fanout_skips_unchanged_panels(qtbot: object, monkeypatch: object) -> None:

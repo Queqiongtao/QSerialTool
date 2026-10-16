@@ -52,6 +52,8 @@ class SessionTab(QWidget):
     preferences_changed = Signal()
     title_changed = Signal(str)
     font_zoom_requested = Signal(int)
+    # 会话状态变化时广播（含初始快照）；窗口据此刷新标签栏状态圆点。
+    state_changed = Signal(object)
 
     def __init__(
         self,
@@ -345,6 +347,8 @@ class SessionTab(QWidget):
         if snapshot.title != self._title:
             self._title = snapshot.title
             self.title_changed.emit(snapshot.title)
+        if previous is None or snapshot.state is not previous.state:
+            self.state_changed.emit(snapshot.state)
         # 工作线程按记录广播快照；状态与配置未变时跳过重量级面板，只刷新状态条。
         if (
             previous is None
