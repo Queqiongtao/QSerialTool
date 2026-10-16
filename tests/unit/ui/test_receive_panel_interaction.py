@@ -171,8 +171,8 @@ def test_right_click_copy_shows_status_hint(qtbot: object, monkeypatch: object) 
         assert tab.status_label.text() == "已复制 5 个字符"
 
         # 计时结束后恢复实时状态文本。
-        tab._copy_hint_timer.stop()
-        tab._copy_hint_timer.timeout.emit()
+        tab.status_strip.copy_hint_timer.stop()
+        tab.status_strip.copy_hint_timer.timeout.emit()
         assert "已连接" in tab.status_label.text()
     finally:
         tab.controller.close(force=True)

@@ -74,8 +74,8 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     tab.receive_panel.set_terminal_draft("draft")
     assert tab.receive_panel.output.toPlainText() == "draft"
 
-    tab._format_actions["hex"].trigger()
-    tab._newline_actions["lf"].trigger()
+    tab.send_settings_button._format_actions["hex"].trigger()
+    tab.send_settings_button._newline_actions["lf"].trigger()
     assert tab.send_panel.send_mode == "hex"
     assert tab.send_panel.line_ending == "lf"
 
@@ -236,7 +236,7 @@ def test_terminal_inline_input_sends_lines_and_recalls_history(qtbot: object) ->
         QTest.keyClick(output, Qt.Key.Key_Down)
         assert output.draft == ""
 
-        history_action = tab.history_menu.actions()[0]
+        history_action = tab.send_settings_button.history_menu.actions()[0]
         assert history_action.text() == "second"
         history_action.trigger()
         assert output.draft == "second"

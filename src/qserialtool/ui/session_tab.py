@@ -2,13 +2,11 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QSignalBlocker, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QActionGroup, QHideEvent, QShowEvent, QWheelEvent
+from PySide6.QtCore import QByteArray, Qt, Signal, Slot
+from PySide6.QtGui import QHideEvent, QShowEvent
 from PySide6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QLabel,
-    QMenu,
     QMessageBox,
     QScrollArea,
     QSizePolicy,
@@ -29,11 +27,14 @@ from qserialtool.domain import (
     ViewMode,
 )
 from qserialtool.ui.connection_panel import ConnectionPanel
+from qserialtool.ui.font_zoom import FontZoomFilter
 from qserialtool.ui.log_panel import LogPanel
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.receive_panel import ReceivePanel
 from qserialtool.ui.send_panel import SendPanel
-from qserialtool.ui.theme_manager import data_colors
+from qserialtool.ui.status_strip import StatusStrip
+from qserialtool.ui.terminal_send_menu import TerminalSendMenu
+from qserialtool.ui.view_mode import ViewModeController
 
 # 侧栏宽度约束：默认略窄，避免拖动后留下大片横向空白；下限与领域模型保持一致。
 _SIDEBAR_MIN_WIDTH = 260
@@ -42,15 +43,6 @@ _SIDEBAR_DEFAULT_WIDTH = 272
 
 # 右键直接复制后状态条提示的显示时长；期间状态文本保持提示内容。
 _COPY_HINT_MS = 1500
-
-_STATE_LABELS = {
-    SessionState.DISCONNECTED: "未连接",
-    SessionState.CONNECTING: "正在连接",
-    SessionState.CONNECTED: "已连接",
-    SessionState.DISCONNECTING: "正在断开",
-    SessionState.ERROR: "错误",
-    SessionState.CLOSED: "已关闭",
-}
 
 
 class SessionTab(QWidget):
@@ -75,14 +67,8 @@ class SessionTab(QWidget):
         self._snapshot: SessionSnapshot | None = None
         self._title = ""
         self._last_error_key: tuple[object, str | None] | None = None
-        self._state_color_cache: str | None = None
         self._sidebar_visible = True
         self._sidebar_width = _SIDEBAR_DEFAULT_WIDTH
-        self._view_mode: ViewMode = preferences.view_mode if preferences else "split"
-        self._split_view_state: QByteArray | None = None
-        self._copy_hint_timer = QTimer(self)
-        self._copy_hint_timer.setSingleShot(True)
-        self._copy_hint_timer.timeout.connect(self._refresh_status)
         self._build_ui(port_provider, preferences)
         bridge.snapshot_changed.connect(self._on_snapshot, Qt.ConnectionType.QueuedConnection)
         bridge.record_received.connect(self._on_record, Qt.ConnectionType.QueuedConnection)
@@ -94,19 +80,21 @@ class SessionTab(QWidget):
         preferences: SessionPreferences | None,
     ) -> None:
         self._build_panels(port_provider, preferences)
-        self.receive_panel.output.viewport().installEventFilter(self)
-        self.send_panel.editor.viewport().installEventFilter(self)
+        self._font_zoom_filter = FontZoomFilter(self)
+        self._font_zoom_filter.zoom_requested.connect(self.font_zoom_requested.emit)
+        self.receive_panel.output.viewport().installEventFilter(self._font_zoom_filter)
+        self.send_panel.editor.viewport().installEventFilter(self._font_zoom_filter)
         self._build_sidebar_toggle()
         self._build_terminal_send_menu()
-        self._build_view_toggle()
         self._build_sidebar()
         self._build_content()
-        self.set_view_mode(self._view_mode, persist=False)
+        self._build_view_controller()
+        self.set_view_mode(preferences.view_mode if preferences else "split", persist=False)
         self._build_status_strip()
         layout = QVBoxLayout(self)
         layout.setSpacing(4)
         layout.addWidget(self.layout_splitter, 1)
-        layout.addWidget(self.status_frame)
+        layout.addWidget(self.status_strip.frame)
         self._connect_panel_signals()
 
     def _build_panels(
@@ -136,123 +124,39 @@ class SessionTab(QWidget):
         self.receive_panel.add_leading_header_widget(self.sidebar_toggle_button)
 
     def _build_terminal_send_menu(self) -> None:
-        self.send_settings_button = QToolButton()
-        self.send_settings_button.setText("发送设置")
-        self.send_settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.send_settings_button.setToolTip("终端发送设置：格式、换行和历史")
-        self.send_settings_button.setVisible(False)
-
-        self.send_settings_menu = QMenu(self.send_settings_button)
-        self._format_actions: dict[str, QAction] = {}
-        format_menu = self.send_settings_menu.addMenu("格式")
-        format_group = QActionGroup(self)
-        format_group.setExclusive(True)
-        for label, value in (("文本", "text"), ("HEX", "hex")):
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.triggered.connect(
-                lambda _checked=False, value=value: self.send_panel.set_send_mode(value)
-            )
-            format_group.addAction(action)
-            format_menu.addAction(action)
-            self._format_actions[value] = action
-
-        self._newline_actions: dict[str, QAction] = {}
-        newline_menu = self.send_settings_menu.addMenu("换行")
-        newline_group = QActionGroup(self)
-        newline_group.setExclusive(True)
-        for label, value in (
-            ("无换行", "none"),
-            ("CR", "cr"),
-            ("LF", "lf"),
-            ("CRLF", "crlf"),
-        ):
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.triggered.connect(
-                lambda _checked=False, value=value: self.send_panel.set_line_ending(value)
-            )
-            newline_group.addAction(action)
-            newline_menu.addAction(action)
-            self._newline_actions[value] = action
-
-        self.history_menu = self.send_settings_menu.addMenu("历史")
-        self.send_settings_button.setMenu(self.send_settings_menu)
+        self.send_settings_button = TerminalSendMenu()
+        self.send_settings_button.send_mode_selected.connect(self.send_panel.set_send_mode)
+        self.send_settings_button.line_ending_selected.connect(self.send_panel.set_line_ending)
+        self.send_settings_button.history_selected.connect(self.receive_panel.set_terminal_draft)
         self.receive_panel.add_trailing_header_widget(self.send_settings_button)
 
     def _sync_terminal_send_menu(self) -> None:
         """让终端发送设置菜单反映当前发送偏好和历史。"""
-        for value, action in self._format_actions.items():
-            action.setChecked(value == self.send_panel.send_mode)
-        for value, action in self._newline_actions.items():
-            action.setChecked(value == self.send_panel.line_ending)
+        self.send_settings_button.sync(
+            send_mode=self.send_panel.send_mode,
+            line_ending=self.send_panel.line_ending,
+            history=self.send_panel.history,
+        )
 
-        self.history_menu.clear()
-        history = self.send_panel.history
-        if not history:
-            action = self.history_menu.addAction("暂无历史")
-            action.setEnabled(False)
-            return
-        for item in reversed(history[-20:]):
-            display = item.replace("\n", "\\n")[:80] or "(空)"
-            action = self.history_menu.addAction(display)
-            action.triggered.connect(
-                lambda _checked=False, value=item: self.receive_panel.set_terminal_draft(value)
-            )
+    def _build_view_controller(self) -> None:
+        self._view_controller = ViewModeController(
+            self,
+            receive_panel=self.receive_panel,
+            send_panel=self.send_panel,
+            splitter=self.receive_send_splitter,
+            send_settings_button=self.send_settings_button,
+        )
+        self._view_controller.preferences_changed.connect(self.preferences_changed.emit)
+        self.receive_panel.add_trailing_header_widget(self._view_controller.toggle_button)
 
-    def _build_view_toggle(self) -> None:
-        self.view_toggle_button = QToolButton()
-        self.view_toggle_button.setText("终端")
-        self.view_toggle_button.setCheckable(True)
-        self.view_toggle_button.setAutoRaise(True)
-        self.view_toggle_button.setToolTip("勾选切换为终端视图：日志与输入同屏")
-        self.view_toggle_button.toggled.connect(self._view_toggled)
-        self.receive_panel.add_trailing_header_widget(self.view_toggle_button)
-
-    def _view_toggled(self, terminal: bool) -> None:
-        self.set_view_mode("terminal" if terminal else "split")
+    @property
+    def view_toggle_button(self) -> QToolButton:
+        """返回终端/分栏视图切换按钮。"""
+        return self._view_controller.toggle_button
 
     def set_view_mode(self, mode: ViewMode, *, persist: bool = True) -> None:
         """在分栏视图与终端视图之间切换。"""
-        if mode not in {"split", "terminal"}:
-            return
-        terminal = mode == "terminal"
-        splitter = self.receive_send_splitter
-        if terminal and not self.send_panel.isHidden():
-            self._split_view_state = splitter.saveState()
-        self._view_mode = mode
-
-        if terminal:
-            if self.send_panel.periodic_button.isChecked():
-                self.send_panel.periodic_button.setChecked(False)
-            self.receive_panel.set_terminal_mode(True)
-            self.send_panel.setVisible(False)
-            splitter.setHandleWidth(0)
-            splitter.handle(1).setEnabled(False)
-            splitter.setSizes([max(splitter.height(), 1), 0])
-            self.send_settings_button.setVisible(True)
-            self.receive_panel.focus_terminal_input()
-        else:
-            self.receive_panel.set_terminal_mode(False)
-            self.send_panel.setVisible(True)
-            splitter.setHandleWidth(6)
-            splitter.handle(1).setEnabled(True)
-            if self._split_view_state is not None:
-                splitter.restoreState(self._split_view_state)
-            else:
-                reference = max(splitter.height(), 400)
-                splitter.setSizes([reference * 3 // 4, max(120, reference // 4)])
-            self.send_settings_button.setVisible(False)
-            self.send_panel.editor.setFocus()
-
-        with QSignalBlocker(self.view_toggle_button):
-            self.view_toggle_button.setChecked(terminal)
-        self.view_toggle_button.setText("分栏" if terminal else "终端")
-        self.view_toggle_button.setToolTip(
-            "切回分栏视图：显示独立发送编辑器" if terminal else "切换为终端视图：日志与输入同屏"
-        )
-        if persist:
-            self.preferences_changed.emit()
+        self._view_controller.set_mode(mode, persist=persist)
 
     def _build_sidebar(self) -> None:
         self.sidebar_content = QWidget()
@@ -296,19 +200,18 @@ class SessionTab(QWidget):
         self.layout_splitter.splitterMoved.connect(self._splitter_moved)
 
     def _build_status_strip(self) -> None:
-        self.state_indicator = QLabel("●")
-        self.status_label = QLabel()
-        self.status_label.setObjectName("statusText")
-        self.status_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.status_frame = QFrame()
-        self.status_frame.setObjectName("statusFrame")
-        self.status_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        status_layout = QHBoxLayout(self.status_frame)
-        status_layout.setContentsMargins(8, 2, 8, 2)
-        status_layout.setSpacing(6)
-        status_layout.addWidget(self.state_indicator)
-        status_layout.addWidget(self.status_label, 1)
+        self.status_strip = StatusStrip(self)
+        self.status_strip.copy_hint_timer.timeout.connect(self._refresh_status)
+
+    @property
+    def status_label(self) -> QLabel:
+        """返回状态文本标签。"""
+        return self.status_strip.status_label
+
+    @property
+    def state_indicator(self) -> QLabel:
+        """返回状态点标签。"""
+        return self.status_strip.state_indicator
 
     def _connect_panel_signals(self) -> None:
         self.connection_panel.config_changed.connect(self.preferences_changed.emit)
@@ -330,7 +233,7 @@ class SessionTab(QWidget):
     def refresh_theme(self) -> None:
         """主题切换后刷新接收区配色和状态点颜色。"""
         self.receive_panel.refresh_theme()
-        self._state_color_cache = None
+        self.status_strip.refresh_theme()
         self._refresh_status()
 
     def _refresh_status(self) -> None:
@@ -342,36 +245,12 @@ class SessionTab(QWidget):
         if not port and snapshot.state in {SessionState.DISCONNECTED, SessionState.ERROR}:
             port = self.connection_panel.current_port()
         port_label = self.connection_panel.describe_port(port) if port else "未选择端口"
-        status_text = (
-            f"{_STATE_LABELS[snapshot.state]} | {port_label} | "
-            f"RX {snapshot.rx_bytes} B | TX {snapshot.tx_bytes} B"
-        )
-        # 复制提示期间保留提示文本，避免被随记录到达的状态刷新冲掉。
-        if not self._copy_hint_timer.isActive():
-            self.status_label.setText(status_text)
-        self.status_label.setToolTip(status_text)
-        # 每次记录都会刷新状态文本，但样式表只在状态颜色变化时重设，避免反复 polish。
-        color = self._state_color(snapshot.state)
-        if color != self._state_color_cache:
-            self._state_color_cache = color
-            self.state_indicator.setStyleSheet(f"color: {color}; font-weight: bold;")
+        self.status_strip.update(snapshot=snapshot, port_label=port_label)
 
     @Slot(int)
     def _show_copy_hint(self, count: int) -> None:
         """右键直接复制后，在状态条短暂提示复制的字符数。"""
-        self.status_label.setText(f"已复制 {count} 个字符")
-        self._copy_hint_timer.start(_COPY_HINT_MS)
-
-    @staticmethod
-    def _state_color(state: SessionState) -> str:
-        colors = data_colors()
-        if state is SessionState.CONNECTED:
-            return colors.connected
-        if state is SessionState.ERROR:
-            return colors.error
-        if state in {SessionState.CONNECTING, SessionState.DISCONNECTING}:
-            return colors.pending
-        return colors.idle
+        self.status_strip.show_copy_hint(count, duration_ms=_COPY_HINT_MS)
 
     def showEvent(self, event: QShowEvent) -> None:
         super().showEvent(event)
@@ -380,19 +259,6 @@ class SessionTab(QWidget):
     def hideEvent(self, event: QHideEvent) -> None:
         self.connection_panel.set_refresh_active(False)
         super().hideEvent(event)
-
-    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        """把接收区与发送编辑区的 Ctrl+滚轮转换为全局字号缩放请求。"""
-        if (
-            event.type() == QEvent.Type.Wheel
-            and isinstance(event, QWheelEvent)
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
-            delta = event.angleDelta().y() or event.angleDelta().x()
-            if delta:
-                self.font_zoom_requested.emit(1 if delta > 0 else -1)
-                return True
-        return super().eventFilter(watched, event)
 
     def apply_layout_state(
         self,
@@ -409,18 +275,14 @@ class SessionTab(QWidget):
         self.sidebar.setVisible(visible)
         if content_splitter_state:
             state = QByteArray.fromBase64(content_splitter_state.encode("ascii"))
-            if self._view_mode == "split":
-                self.receive_send_splitter.restoreState(state)
-            else:
-                # 终端视图下不能显示分栏尺寸，但切回分栏时必须恢复上次比例。
-                self._split_view_state = state
+            self._view_controller.apply_split_state(state)
         if visible:
             self.layout_splitter.setSizes(
                 [self._sidebar_width, max(400, self.width() - self._sidebar_width)]
             )
         else:
             self.layout_splitter.setSizes([0, max(400, self.width())])
-        if self._view_mode == "terminal":
+        if self._view_controller.mode == "terminal":
             self.set_view_mode("terminal", persist=False)
 
     def layout_state(self) -> tuple[bool, int, str | None]:
@@ -429,11 +291,7 @@ class SessionTab(QWidget):
             sizes = self.layout_splitter.sizes()
             if sizes:
                 self._sidebar_width = min(max(sizes[0], _SIDEBAR_MIN_WIDTH), _SIDEBAR_MAX_WIDTH)
-        if self._view_mode == "terminal" and self._split_view_state is not None:
-            state = self._split_view_state
-        else:
-            state = self.receive_send_splitter.saveState()
-        splitter_state = bytes(state.toBase64()).decode("ascii")
+        splitter_state = self._view_controller.split_state_base64()
         return self._sidebar_visible, self._sidebar_width, splitter_state
 
     def to_preferences(self) -> SessionPreferences:
@@ -460,7 +318,7 @@ class SessionTab(QWidget):
             send_mode=self.send_panel.mode_combo.currentData(),
             line_ending=self.send_panel.newline_combo.currentData(),
             periodic_interval_ms=self.send_panel.interval_spin.value(),
-            view_mode=self._view_mode,
+            view_mode=self._view_controller.mode,
         )
 
     @Slot(object)
