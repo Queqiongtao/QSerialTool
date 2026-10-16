@@ -100,14 +100,10 @@ def test_main_window_uses_single_row_header(qtbot: object) -> None:
 
     corner = window.tabs.cornerWidget(Qt.Corner.TopRightCorner)
     assert corner is not None
-    assert window.theme_combo.parentWidget() is corner
-    assert window.font_combo.parentWidget() is corner
     assert window.menu_button.parentWidget() is corner
     # “+”由自定义标签栏承载，跟随最后一个标签而不是固定在角落。
     assert window.tabs.tabBar() is window.tab_bar
     assert window.new_tab_button.parentWidget() is window.tab_bar
-    assert window.theme_combo.isVisible()
-    assert window.font_combo.isVisible()
     assert window.new_tab_button.isVisible()
     assert window.menu_button.isVisible()
     window.close()

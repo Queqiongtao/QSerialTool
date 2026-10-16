@@ -31,9 +31,9 @@ QLabel#emptyState {{
     color: {c.muted};
     background: transparent;
 }}
-/* 标签栏右上角“主题/字号”小标签：压轻层级，让下拉框成为主体。 */
-QWidget#headerTools QLabel {{
-    color: {c.muted};
+/* 标签栏右上角“☰”菜单按钮所在容器。 */
+QWidget#headerTools {{
+    background: transparent;
 }}
 QFrame#statusFrame {{
     background: {c.subtle};

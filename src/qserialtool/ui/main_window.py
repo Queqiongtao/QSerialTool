@@ -116,11 +116,12 @@ class MainWindow(QMainWindow):
         )
         self.main_menu = actions.main_menu
         self.menu_button = actions.menu_button
-        self.theme_combo = actions.theme_combo
-        self.font_combo = actions.font_combo
+        self.theme_menu = actions.theme_menu
+        self.theme_actions = actions.theme_actions
         self.new_tab_button = self.tab_bar.new_tab_button
         self.tab_bar.new_tab_requested.connect(self._new_session)
         self.font_menu = actions.font_menu
+        self.font_size_actions = actions.font_size_actions
         self.font_zoom_in_action = actions.font_zoom_in_action
         self.font_zoom_out_action = actions.font_zoom_out_action
         self.font_reset_action = actions.font_reset_action
@@ -300,37 +301,35 @@ class MainWindow(QMainWindow):
         if isinstance(widget, SessionTab):
             widget.receive_panel.request_clear()
 
-    def _theme_changed(self) -> None:
-        selected = self.theme_combo.currentData()
-        if selected not in {"system", "light", "dark"}:
-            return
-        self._theme = selected
+    def _theme_changed(self, theme: Theme) -> None:
+        """“主题”子菜单勾选后立即应用并保存。"""
+        self._theme = theme
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, self._theme)
         refresh_session_tabs(self.tabs, self._data_font_size)
         self._schedule_save()
 
-    def _font_size_changed(self) -> None:
-        size = self.font_combo.currentData()
-        if not isinstance(size, int):
-            return
+    def _font_size_changed(self, size: int) -> None:
+        """“字号”子菜单档位勾选后应用到全部标签并保存。"""
         self._data_font_size = size
         apply_data_font_size(self.tabs, size)
         self._schedule_save()
 
     def _zoom_font(self, step: int) -> None:
         """按预设档位放大或缩小全局字号，到达边界后保持不变。"""
-        target = next_font_size(self.font_combo.currentData(), step)
-        index = self.font_combo.findData(target)
-        if index >= 0:
-            self.font_combo.setCurrentIndex(index)
+        self._select_font_size(next_font_size(self._data_font_size, step))
 
     def _reset_font_size(self) -> None:
         """恢复为跟随系统的默认字号。"""
-        index = self.font_combo.findData(0)
-        if index >= 0:
-            self.font_combo.setCurrentIndex(index)
+        self._select_font_size(0)
+
+    def _select_font_size(self, size: int) -> None:
+        """勾选对应档位动作；勾选变化经回调应用到所有标签。"""
+        for action in self.font_size_actions:
+            if action.data() == size:
+                action.setChecked(True)
+                return
 
     def _schedule_save(self) -> None:
         if self._config_store is not None:

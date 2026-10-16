@@ -17,6 +17,28 @@ from qserialtool.ui import MainWindow
 from qserialtool.ui.theme_manager import DATA_FONT_PRESETS, data_font
 
 
+def _checked_font_size(window: MainWindow) -> object:
+    """返回“字号”子菜单当前勾选的档位值。"""
+    return next(action for action in window.font_size_actions if action.isChecked()).data()
+
+
+def _select_font_size(window: MainWindow, size: int) -> None:
+    """勾选“字号”子菜单中的指定档位。"""
+    action = next(action for action in window.font_size_actions if action.data() == size)
+    action.setChecked(True)
+
+
+def _checked_theme(window: MainWindow) -> object:
+    """返回“主题”子菜单当前勾选的主题值。"""
+    return next(action for action in window.theme_actions if action.isChecked()).data()
+
+
+def _select_theme(window: MainWindow, theme: str) -> None:
+    """勾选“主题”子菜单中的指定主题。"""
+    action = next(action for action in window.theme_actions if action.data() == theme)
+    action.setChecked(True)
+
+
 def test_window_minimum_size_matches_layout_target(qtbot: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
@@ -45,7 +67,7 @@ def test_data_panels_use_monospace_font(qtbot: object) -> None:
     window.close()
 
 
-def test_font_size_combo_scales_receive_and_send_panels(qtbot: object) -> None:
+def test_font_size_menu_scales_receive_and_send_panels(qtbot: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
     tab = current_tab(window)
@@ -54,11 +76,11 @@ def test_font_size_combo_scales_receive_and_send_panels(qtbot: object) -> None:
         default_size = data_font().pointSize()
         assert tab.receive_panel.output.font().pointSize() == default_size
 
-        window.font_combo.setCurrentIndex(window.font_combo.findData(18))
+        _select_font_size(window, 18)
         assert tab.receive_panel.output.font().pointSize() == 18
         assert tab.send_panel.editor.font().pointSize() == 18
 
-        window.font_combo.setCurrentIndex(window.font_combo.findData(0))
+        _select_font_size(window, 0)
         assert tab.receive_panel.output.font().pointSize() == default_size
         assert tab.send_panel.editor.font().pointSize() == default_size
     finally:
@@ -135,7 +157,7 @@ def test_new_session_inherits_current_font_size(qtbot: object) -> None:
     window = build_window(qtbot, transport)
 
     try:
-        window.font_combo.setCurrentIndex(window.font_combo.findData(20))
+        _select_font_size(window, 20)
         new_tab = window.new_session()
 
         assert new_tab.receive_panel.output.font().pointSize() == 20
@@ -168,10 +190,10 @@ def test_font_size_restored_from_config_and_persisted(qtbot: object) -> None:
     tab = current_tab(window)
 
     try:
-        assert window.font_combo.currentData() == 16
+        assert _checked_font_size(window) == 16
         assert tab.receive_panel.output.font().pointSize() == 16
 
-        window.font_combo.setCurrentIndex(window.font_combo.findData(24))
+        _select_font_size(window, 24)
         window._save_config()
 
         assert store.saves[-1].data_font_size == 24
@@ -185,10 +207,10 @@ def test_theme_change_keeps_data_font_size(qtbot: object) -> None:
     tab = current_tab(window)
 
     try:
-        window.font_combo.setCurrentIndex(window.font_combo.findData(18))
+        _select_font_size(window, 18)
         assert tab.receive_panel.output.font().pointSize() == 18
 
-        window.theme_combo.setCurrentIndex(window.theme_combo.findData("dark"))
+        _select_theme(window, "dark")
 
         assert tab.receive_panel.output.font().pointSize() == 18
         assert tab.send_panel.editor.font().pointSize() == 18
@@ -222,27 +244,27 @@ def test_font_shortcuts_step_through_presets(qtbot: object) -> None:
     try:
         window.activateWindow()
         qtbot.waitUntil(window.isActiveWindow, timeout=2000)
-        assert window.font_combo.currentData() == 0
+        assert _checked_font_size(window) == 0
 
         qtbot.keyClick(window, Qt.Key.Key_Equal, Qt.KeyboardModifier.ControlModifier)
-        assert window.font_combo.currentData() == zoom_in[0]
+        assert _checked_font_size(window) == zoom_in[0]
         assert tab.receive_panel.output.font().pointSize() == zoom_in[0]
         assert tab.send_panel.editor.font().pointSize() == zoom_in[0]
 
         qtbot.keyClick(window, Qt.Key.Key_Equal, Qt.KeyboardModifier.ControlModifier)
-        assert window.font_combo.currentData() == zoom_in[1]
+        assert _checked_font_size(window) == zoom_in[1]
 
         qtbot.keyClick(window, Qt.Key.Key_Minus, Qt.KeyboardModifier.ControlModifier)
-        assert window.font_combo.currentData() == zoom_in[0]
+        assert _checked_font_size(window) == zoom_in[0]
 
         qtbot.keyClick(window, Qt.Key.Key_Plus, Qt.KeyboardModifier.ControlModifier)
-        assert window.font_combo.currentData() == zoom_in[1]
+        assert _checked_font_size(window) == zoom_in[1]
 
         window._save_config()
         assert store.saves[-1].data_font_size == zoom_in[1]
 
         qtbot.keyClick(window, Qt.Key.Key_0, Qt.KeyboardModifier.ControlModifier)
-        assert window.font_combo.currentData() == 0
+        assert _checked_font_size(window) == 0
         assert tab.receive_panel.output.font().pointSize() == system_size
     finally:
         tab.controller.close(force=True)
@@ -262,52 +284,74 @@ def test_ctrl_wheel_over_data_areas_zooms_font(qtbot: object) -> None:
             tab.receive_panel.output.viewport(),
             _wheel(120, Qt.KeyboardModifier.NoModifier),
         )
-        assert window.font_combo.currentData() == 0
+        assert _checked_font_size(window) == 0
 
         QApplication.sendEvent(
             tab.receive_panel.output.viewport(),
             _wheel(120, Qt.KeyboardModifier.ControlModifier),
         )
-        assert window.font_combo.currentData() == zoom_in[0]
+        assert _checked_font_size(window) == zoom_in[0]
         assert tab.send_panel.editor.font().pointSize() == zoom_in[0]
 
         QApplication.sendEvent(
             tab.send_panel.editor.viewport(),
             _wheel(120, Qt.KeyboardModifier.ControlModifier),
         )
-        assert window.font_combo.currentData() == zoom_in[1]
+        assert _checked_font_size(window) == zoom_in[1]
 
         QApplication.sendEvent(
             tab.send_panel.editor.viewport(),
             _wheel(-120, Qt.KeyboardModifier.ControlModifier),
         )
-        assert window.font_combo.currentData() == zoom_in[0]
+        assert _checked_font_size(window) == zoom_in[0]
         assert tab.receive_panel.output.font().pointSize() == zoom_in[0]
     finally:
         tab.controller.close(force=True)
         window.close()
 
 
-def test_font_menu_exposes_zoom_actions(qtbot: object) -> None:
+def test_font_menu_lists_presets_and_zoom_actions(qtbot: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
 
     try:
         assert window.font_menu.title() == "字号"
-        assert [action.text() for action in window.font_menu.actions()] == [
-            "放大",
-            "缩小",
-            "恢复默认",
-        ]
+        labels = [action.text() for action in window.font_menu.actions()]
+        assert labels[0] == "跟随系统"
+        assert labels[1 : 1 + len(DATA_FONT_PRESETS)] == [str(size) for size in DATA_FONT_PRESETS]
+        assert labels[-3:] == ["放大", "缩小", "恢复默认"]
+        presets = window.font_menu.actions()[: 1 + len(DATA_FONT_PRESETS)]
+        assert all(action.isCheckable() for action in presets)
         assert window.font_zoom_in_action.shortcut().toString() == "Ctrl+="
         assert window.font_zoom_out_action.shortcut().toString() == "Ctrl+-"
         assert window.font_reset_action.shortcut().toString() == "Ctrl+0"
         assert any(action.menu() is window.font_menu for action in window.main_menu.actions())
 
         window.font_zoom_in_action.trigger()
-        assert window.font_combo.currentData() > 0
+        assert _checked_font_size(window) > 0
 
         window.font_reset_action.trigger()
-        assert window.font_combo.currentData() == 0
+        assert _checked_font_size(window) == 0
+    finally:
+        window.close()
+
+
+def test_theme_menu_exposes_exclusive_choices(qtbot: object) -> None:
+    """“主题”子菜单三项互斥，勾选即切换并持久化。"""
+    store = RecordingStore()
+    window = build_window_with_store(qtbot, FakeTransport(), store)
+
+    try:
+        themes = window.theme_menu.actions()
+        assert [action.text() for action in themes] == ["跟随系统", "浅色", "深色"]
+        assert all(action.isCheckable() for action in themes)
+        assert _checked_theme(window) == "system"
+        assert any(action.menu() is window.theme_menu for action in window.main_menu.actions())
+
+        _select_theme(window, "dark")
+        assert _checked_theme(window) == "dark"
+
+        window._save_config()
+        assert store.saves[-1].theme == "dark"
     finally:
         window.close()
