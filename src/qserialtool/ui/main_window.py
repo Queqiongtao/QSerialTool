@@ -43,6 +43,7 @@ from qserialtool.ui.main_actions import (
 )
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.session_tab import _SIDEBAR_DEFAULT_WIDTH, SessionTab
+from qserialtool.ui.tab_bar import SessionTabBar
 from qserialtool.ui.theme_manager import apply_theme
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,8 @@ class MainWindow(QMainWindow):
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._save_config)
         self.tabs = QTabWidget()
+        self.tab_bar = SessionTabBar(self.tabs)
+        self.tabs.setTabBar(self.tab_bar)
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self._close_tab)
@@ -115,7 +118,8 @@ class MainWindow(QMainWindow):
         self.menu_button = actions.menu_button
         self.theme_combo = actions.theme_combo
         self.font_combo = actions.font_combo
-        self.new_tab_button = actions.new_tab_button
+        self.new_tab_button = self.tab_bar.new_tab_button
+        self.tab_bar.new_tab_requested.connect(self._new_session)
         self.font_menu = actions.font_menu
         self.font_zoom_in_action = actions.font_zoom_in_action
         self.font_zoom_out_action = actions.font_zoom_out_action

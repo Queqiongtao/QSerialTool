@@ -225,6 +225,21 @@ QToolButton:disabled {{
 QToolButton::menu-indicator {{
     image: none;
 }}
+/* 标签栏“+”新建按钮：实心强调色，与“连接”“发送”等主操作按钮一致。 */
+QToolButton#newTabButton {{
+    background: {c.accent_fill};
+    border: 1px solid {c.accent_fill};
+    border-radius: 6px;
+    padding: 0;
+}}
+QToolButton#newTabButton:hover {{
+    background: {c.accent_fill_hover};
+    border-color: {c.accent_fill_hover};
+}}
+QToolButton#newTabButton:pressed {{
+    background: {c.accent_fill_pressed};
+    border-color: {c.accent_fill_pressed};
+}}
 
 QCheckBox {{
     color: {c.text};

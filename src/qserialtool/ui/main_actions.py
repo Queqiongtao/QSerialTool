@@ -51,7 +51,6 @@ class MainActions:
     menu_button: QToolButton
     theme_combo: QComboBox
     font_combo: QComboBox
-    new_tab_button: QToolButton
     header_tools: QWidget
     font_menu: QMenu
     font_zoom_in_action: QAction
@@ -131,14 +130,12 @@ def build_main_actions(
 
     theme_combo = _build_theme_combo(theme, callbacks.theme_changed)
     font_combo = _build_font_combo(data_font_size, callbacks.font_size_changed)
-    new_tab_button = _build_new_tab_button(window, callbacks.new_session)
 
     tabs.setDocumentMode(True)
     header_tools = _install_header_tools(
         window,
         theme_combo=theme_combo,
         font_combo=font_combo,
-        new_tab_button=new_tab_button,
         menu_button=menu_button,
     )
     tabs.setCornerWidget(header_tools, Qt.Corner.TopRightCorner)
@@ -151,7 +148,6 @@ def build_main_actions(
         menu_button=menu_button,
         theme_combo=theme_combo,
         font_combo=font_combo,
-        new_tab_button=new_tab_button,
         header_tools=header_tools,
         font_menu=font_actions.menu,
         font_zoom_in_action=font_actions.zoom_in,
@@ -174,25 +170,14 @@ def _build_menu_button(window: QWidget, menu: QMenu) -> QToolButton:
     return button
 
 
-def _build_new_tab_button(window: QWidget, on_click: Callable[[], None]) -> QToolButton:
-    """构造标签栏右上角的“+”新建按钮。"""
-    button = QToolButton(window)
-    button.setText("+")
-    button.setAutoRaise(True)
-    button.setToolTip("新建会话 (Ctrl+T)")
-    button.clicked.connect(on_click)
-    return button
-
-
 def _install_header_tools(
     window: QWidget,
     *,
     theme_combo: QComboBox,
     font_combo: QComboBox,
-    new_tab_button: QToolButton,
     menu_button: QToolButton,
 ) -> QWidget:
-    """把主题/字号下拉框和按钮装配成标签栏右上角控件。"""
+    """把主题/字号下拉框和“☰”按钮装配成标签栏右上角控件。"""
     header_tools = QWidget(window)
     layout = QHBoxLayout(header_tools)
     layout.setContentsMargins(2, 0, 4, 0)
@@ -201,7 +186,6 @@ def _install_header_tools(
     layout.addWidget(theme_combo)
     layout.addWidget(QLabel("字号"))
     layout.addWidget(font_combo)
-    layout.addWidget(new_tab_button)
     layout.addWidget(menu_button)
     return header_tools
 
