@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QElapsedTimer, QSignalBlocker, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QSignalBlocker, Qt, QTimer, Signal
 from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -28,8 +28,9 @@ _DOCUMENT_BLOCK_LIMIT = _MAX_RENDERED_RECORDS + 3
 # 高频数据流的渲染合并窗口：空闲后的第一条立即显示，其余在同一窗口内合并成一帧。
 _FLUSH_INTERVAL_MS = 30
 
-# 分栏空态的占位提示；终端模式下光标会盖住提示，切回分栏时恢复。
-_EMPTY_PLACEHOLDER = "暂无数据"
+# 分栏空态的居中提示；终端视图或已有内容时隐藏。
+_EMPTY_TITLE = "暂无数据"
+_EMPTY_HINT = "连接成功后，接收内容会显示在这里"
 
 
 class ReceivePanel(QWidget):
@@ -116,10 +117,18 @@ class ReceivePanel(QWidget):
         )
 
         self.output = TerminalOutput()
-        self.output.setPlaceholderText(_EMPTY_PLACEHOLDER)
         self.output.setFont(data_font())
         self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.output.document().setMaximumBlockCount(_DOCUMENT_BLOCK_LIMIT)
+        self.empty_state = QLabel(self.output.viewport())
+        self.empty_state.setObjectName("emptyState")
+        self.empty_state.setText(f"<b>{_EMPTY_TITLE}</b><br>{_EMPTY_HINT}")
+        self.empty_state.setTextFormat(Qt.TextFormat.RichText)
+        self.empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # 覆盖层只做提示：连同子级不接收鼠标事件，不影响选中与滚动。
+        self.empty_state.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.empty_state.hide()
+        self.output.viewport().installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -156,13 +165,17 @@ class ReceivePanel(QWidget):
         self._header_overflow.set_mode_visible(self.highlight_check, enabled)
         self._header_overflow.set_mode_visible(self.terminal_timestamp_check, enabled)
         self.mode_combo.setVisible(not enabled)
-        # 终端视图的块状光标会盖住空态文字，切回分栏时再恢复提示。
-        self.output.setPlaceholderText("" if enabled else _EMPTY_PLACEHOLDER)
         if not enabled:
             self._screen = None
         self.output.set_terminal_mode(enabled)
         self.output.set_highlight_enabled(self.highlight_check.isChecked())
         self.render_records()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """输出视口尺寸变化时把空态提示重新居中。"""
+        if watched is self.output.viewport() and event.type() is QEvent.Type.Resize:
+            self._place_empty_state()
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
@@ -283,6 +296,7 @@ class ReceivePanel(QWidget):
             return
         self.output.set_autoscroll(self.autoscroll_check.isChecked())
         self.output.append_lines([self._record_segments(record) for record in records])
+        self._sync_empty_state()
 
     def _discard_pending(self) -> None:
         """丢弃尚未渲染的记录；调用方随后必须自行重绘或清屏。"""
@@ -298,6 +312,10 @@ class ReceivePanel(QWidget):
         """重新渲染最近的记录，超出渲染上限的部分用提示行说明。"""
         if self._paused:
             return
+        self._render_records()
+        self._sync_empty_state()
+
+    def _render_records(self) -> None:
         self._discard_pending()
         records = self._records_provider()
         hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
@@ -312,6 +330,23 @@ class ReceivePanel(QWidget):
             if self._should_show(record):
                 self._insert_record(record)
         self.output.end_batch_update()
+
+    def _sync_empty_state(self) -> None:
+        """按分栏/终端模式与文档是否为空更新空态提示。"""
+        visible = not self._terminal_mode and self.output.document().isEmpty()
+        self.empty_state.setVisible(visible)
+        if visible:
+            self._place_empty_state()
+
+    def _place_empty_state(self) -> None:
+        """把空态提示居中放到输出视口。"""
+        self.empty_state.adjustSize()
+        viewport_rect = self.output.viewport().rect()
+        size = self.empty_state.size()
+        self.empty_state.move(
+            viewport_rect.center().x() - size.width() // 2,
+            viewport_rect.center().y() - size.height() // 2,
+        )
 
     def _terminal_screen(self) -> TerminalScreen:
         """返回终端模型；首次进入终端视图时用最近记录重建。"""
@@ -389,6 +424,8 @@ class ReceivePanel(QWidget):
         if self._terminal_mode:
             self._screen = None
             self.render_records()
+        else:
+            self._sync_empty_state()
 
     def request_clear(self) -> None:
         """请求清空接收区；走与“清屏”按钮相同的确认与重置流程。"""

@@ -233,7 +233,7 @@ def test_receive_panel_hex_mode_keeps_payload_colors_without_timestamp(qtbot: ob
     ]
 
 
-def test_receive_panel_empty_state_placeholder(qtbot: object) -> None:
+def test_receive_panel_empty_state_overlay(qtbot: object, monkeypatch: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
     tab = current_tab(window)
@@ -241,23 +241,47 @@ def test_receive_panel_empty_state_placeholder(qtbot: object) -> None:
 
     try:
         assert receive_panel.output.toPlainText() == ""
-        assert receive_panel.output.placeholderText() == "暂无数据"
-
-        receive_panel.append_record(
-            LogRecord.from_bytes(
-                timestamp_utc=datetime(2026, 10, 4, tzinfo=timezone.utc),
-                direction="rx",
-                raw=b"hello",
-                encoding="utf-8",
-                session_id="empty-state",
-            )
+        assert receive_panel.empty_state.isVisible()
+        assert "暂无数据" in receive_panel.empty_state.text()
+        assert receive_panel.empty_state.testAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents
         )
-        assert receive_panel.output.toPlainText() != ""
+        # 覆盖层应居中于输出视口（允许 1px 取整误差）。
+        viewport = receive_panel.output.viewport()
+        expected = (
+            (viewport.width() - 1) // 2 - receive_panel.empty_state.width() // 2,
+            (viewport.height() - 1) // 2 - receive_panel.empty_state.height() // 2,
+        )
+        assert abs(receive_panel.empty_state.x() - expected[0]) <= 2
+        assert abs(receive_panel.empty_state.y() - expected[1]) <= 2
 
-        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
-        assert receive_panel.output.placeholderText() == ""
+        connect_session(qtbot, tab)
+        transport.push_read(b"hello")
+        qtbot.waitUntil(
+            lambda: "hello" in receive_panel.output.toPlainText(),
+            timeout=2000,
+        )
+        assert not receive_panel.empty_state.isVisible()
 
+        # 终端视图隐藏提示，切回分栏且缓冲仍有内容时保持隐藏。
         qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
-        assert receive_panel.output.placeholderText() == "暂无数据"
+        assert not receive_panel.empty_state.isVisible()
+        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(
+            lambda: "hello" in receive_panel.output.toPlainText(),
+            timeout=2000,
+        )
+        assert not receive_panel.empty_state.isVisible()
+
+        # 清屏后缓冲为空，提示恢复显示。
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+        qtbot.mouseClick(receive_panel.clear_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(lambda: receive_panel.output.toPlainText() == "", timeout=2000)
+        assert receive_panel.empty_state.isVisible()
     finally:
+        tab.controller.close(force=True)
         window.close()

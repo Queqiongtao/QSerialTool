@@ -212,6 +212,9 @@ DATA_FONT_PRESETS: tuple[int, ...] = (9, 10, 11, 12, 14, 16, 18, 20, 24)
 # 标题行与顶栏控件统一高度，避免下拉框、按钮和勾选框基线不齐。
 CONTROL_HEIGHT_PX = 24
 
+# 头部方形工具按钮（标签栏“+”、右上角“☰”）的边长，略高于普通控件。
+HEADER_BUTTON_SIZE_PX = 28
+
 
 def data_font(size: int = 0) -> QFont:
     """返回接收与发送数据区使用的等宽字体；size 为 0 时沿用系统默认字号。"""

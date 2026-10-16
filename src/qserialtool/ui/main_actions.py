@@ -18,7 +18,12 @@ from PySide6.QtWidgets import (
 
 from qserialtool.domain import Theme
 from qserialtool.ui.session_tab import SessionTab
-from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX, DATA_FONT_PRESETS, data_font
+from qserialtool.ui.theme_manager import (
+    CONTROL_HEIGHT_PX,
+    DATA_FONT_PRESETS,
+    HEADER_BUTTON_SIZE_PX,
+    data_font,
+)
 
 # 主题下拉框的显示标签与配置值。
 THEMES: tuple[tuple[str, Theme], ...] = (
@@ -160,10 +165,11 @@ def build_main_actions(
 
 
 def _build_menu_button(window: QWidget, menu: QMenu) -> QToolButton:
-    """构造“☰”菜单按钮。"""
+    """构造“☰”菜单按钮，固定为与标签栏“+”同高的方形。"""
     button = QToolButton(window)
     button.setText("☰")
     button.setAutoRaise(True)
+    button.setFixedSize(HEADER_BUTTON_SIZE_PX, HEADER_BUTTON_SIZE_PX)
     button.setToolTip("新建会话 / 关闭当前会话 / 清空接收区 / 字号 / 使用帮助 / 关于 / 退出")
     button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
     button.setMenu(menu)
@@ -179,6 +185,7 @@ def _install_header_tools(
 ) -> QWidget:
     """把主题/字号下拉框和“☰”按钮装配成标签栏右上角控件。"""
     header_tools = QWidget(window)
+    header_tools.setObjectName("headerTools")
     layout = QHBoxLayout(header_tools)
     layout.setContentsMargins(2, 0, 4, 0)
     layout.setSpacing(4)

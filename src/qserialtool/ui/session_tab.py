@@ -161,7 +161,8 @@ class SessionTab(QWidget):
     def _build_sidebar(self) -> None:
         self.sidebar_content = QWidget()
         sidebar_layout = QVBoxLayout(self.sidebar_content)
-        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        # 侧栏面板留白：卡片不贴面板边缘，底部空区由面板底色承接。
+        sidebar_layout.setContentsMargins(8, 6, 8, 8)
         sidebar_layout.setSpacing(8)
         sidebar_layout.addWidget(self.connection_panel)
         sidebar_layout.addWidget(self.log_panel)
@@ -169,6 +170,7 @@ class SessionTab(QWidget):
         sidebar_layout.addStretch(1)
 
         self.sidebar = QScrollArea()
+        self.sidebar.setObjectName("sessionSidebar")
         self.sidebar.setWidget(self.sidebar_content)
         self.sidebar.setWidgetResizable(True)
         self.sidebar.setFrameShape(QFrame.Shape.NoFrame)
@@ -187,7 +189,8 @@ class SessionTab(QWidget):
         receive_send_splitter.setStretchFactor(1, 1)
         self.receive_send_splitter = receive_send_splitter
         main_layout = QVBoxLayout(self.main_content)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        # 与侧栏一致的留白节奏；状态条在根布局中保持通栏贴底。
+        main_layout.setContentsMargins(8, 6, 8, 8)
         main_layout.addWidget(receive_send_splitter)
 
         self.layout_splitter = QSplitter(Qt.Orientation.Horizontal)

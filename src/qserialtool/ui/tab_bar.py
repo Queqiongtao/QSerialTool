@@ -5,13 +5,12 @@ from PySide6.QtGui import QIcon, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import QTabBar, QToolButton, QWidget
 
 from qserialtool.ui.style_sheet import assets_dir
+from qserialtool.ui.theme_manager import HEADER_BUTTON_SIZE_PX
 
 # “+”与最后一个标签之间的水平间距（像素）。
 _BUTTON_GAP_PX = 4
 # 标签栏为空时“+”距左边缘的水平余量（像素）。
 _EMPTY_MARGIN_PX = 2
-# “+”按钮固定边长（像素）：比标签矮一圈，跨平台尺寸一致。
-_BUTTON_SIZE_PX = 28
 # “+”按钮内矢量图标的边长（像素）。
 _BUTTON_ICON_PX = 16
 
@@ -34,7 +33,7 @@ class SessionTabBar(QTabBar):
         self.new_tab_button.setObjectName("newTabButton")
         self.new_tab_button.setIcon(QIcon(str(assets_dir() / "plus.svg")))
         self.new_tab_button.setIconSize(QSize(_BUTTON_ICON_PX, _BUTTON_ICON_PX))
-        self.new_tab_button.setFixedSize(_BUTTON_SIZE_PX, _BUTTON_SIZE_PX)
+        self.new_tab_button.setFixedSize(HEADER_BUTTON_SIZE_PX, HEADER_BUTTON_SIZE_PX)
         self.new_tab_button.setAutoRaise(True)
         self.new_tab_button.setToolTip("新建会话 (Ctrl+T)")
         self.new_tab_button.clicked.connect(self._on_new_tab_clicked)

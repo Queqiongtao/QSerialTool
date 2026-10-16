@@ -26,6 +26,15 @@ QLabel#statusText {{
     color: {c.muted};
     background: transparent;
 }}
+/* 接收区居中空态提示（ReceivePanel 的 empty_state 覆盖标签）。 */
+QLabel#emptyState {{
+    color: {c.muted};
+    background: transparent;
+}}
+/* 标签栏右上角“主题/字号”小标签：压轻层级，让下拉框成为主体。 */
+QWidget#headerTools QLabel {{
+    color: {c.muted};
+}}
 QFrame#statusFrame {{
     background: {c.subtle};
     border: none;
@@ -57,6 +66,18 @@ QTabBar::tab:selected {{
     color: {c.text};
     background: {c.surface};
     border-bottom: 2px solid {c.accent};
+}}
+/* 侧栏面板化：整列浅色底 + 右侧分隔线，卡片浮在面板上。 */
+QScrollArea#sessionSidebar {{
+    background: {c.subtle};
+    border: none;
+    border-right: 1px solid {c.border};
+}}
+QScrollArea#sessionSidebar > QWidget#qt_scrollarea_viewport {{
+    background: {c.subtle};
+}}
+QScrollArea#sessionSidebar > QWidget > QWidget {{
+    background: {c.subtle};
 }}
 
 QGroupBox {{
