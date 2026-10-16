@@ -9,7 +9,7 @@
 > 目标平台：Windows 10/11 x64、主流 Linux x64  
 > 项目许可证：MIT  
 > 文档性质：V1 需求与设计基线；当前实现细节见 `docs/developer-guide.md`，当前使用方式见 `docs/user-guide.md`。  
-> 更新时间：2026-10-15 17:55:14 CST（星期四）
+> 更新时间：2026-10-16 11:21:47 CST（星期五）
 
 ## 1. 文档目的
 
@@ -100,6 +100,7 @@ V1 包含：
 - 当前实现开发指南见 `docs/developer-guide.md`，用户操作见 `docs/user-guide.md`。
 - GitHub Actions 已承担文档同步、Ruff 和 pytest 快速质量门禁；单文件构建仍在对应操作系统本地执行。
 - Windows/Linux 真实串口、单文件冷启动和长时间稳定性验收仍按发布清单执行。
+- `AGENT.md` 已修订至 v1.5：重组语言、提交与文档同步规范，修正目录树并如实标注 `tests/ui/` 空目录，加入工程组织一致性与文件规模棘轮规则。
 
 ## 3. 工程原则
 
