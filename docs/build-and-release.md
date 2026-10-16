@@ -39,6 +39,8 @@ dist/QSerialTool.exe
 dist/QSerialTool.exe.sha256
 ```
 
+重新构建前请先退出正在运行的本程序：运行中的单文件进程会锁定 `dist/QSerialTool.exe`，PyInstaller 覆盖旧产物时会报 `PermissionError: [WinError 5] 拒绝访问`。
+
 ## Linux 构建
 
 在 Ubuntu 22.04 或兼容环境运行：
