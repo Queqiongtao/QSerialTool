@@ -3,7 +3,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
@@ -48,6 +48,8 @@ class _ScreenWindow:
 
 class TerminalOutput(QPlainTextEdit):
     """渲染终端网格，并把单行输入维护为光标处的可编辑草稿。"""
+
+    copied = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -645,15 +647,17 @@ class TerminalOutput(QPlainTextEdit):
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
-        """接收区右键只提供复制与全选，避免剪切/删除改到日志内容。"""
+        """有选中内容时右键直接复制；没有选中时才弹出只含“全选”的菜单。"""
+        if self.textCursor().hasSelection():
+            self.copy()
+            self.copied.emit(len(self.textCursor().selectedText()))
+            event.accept()
+            return
         self._build_context_menu().exec(event.globalPos())
 
     def _build_context_menu(self) -> QMenu:
-        """构造受限的右键菜单：只有复制和全选。"""
+        """构造无选中内容时的右键菜单：只提供全选。"""
         menu = QMenu(self)
-        copy_action = menu.addAction("复制")
-        copy_action.setEnabled(self.textCursor().hasSelection())
-        copy_action.triggered.connect(self.copy)
         select_all_action = menu.addAction("全选")
         select_all_action.triggered.connect(self.selectAll)
         return menu

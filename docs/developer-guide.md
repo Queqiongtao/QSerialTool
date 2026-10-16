@@ -217,7 +217,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `QtSessionBridge`：把 Worker 线程事件转换为 Qt 信号。
 - 数据字号：`theme_manager.DATA_FONT_PRESETS` 与 `data_font(size)` 生成数据区字体（`size=0` 时保持系统默认），`ReceivePanel.set_data_font_size()`、`SendPanel.set_data_font_size()` 与 `SessionTab.set_data_font_size()` 逐层转发；头部“字号”下拉框默认“跟随系统”，改变时立即应用到所有标签页并持久化为 `AppConfig.data_font_size`。`MainWindow` 的“字号”动作（`Ctrl+=`/`Ctrl++` 放大、`Ctrl+-` 缩小、`Ctrl+0` 恢复默认，并挂在 ☰ 菜单的字号子菜单）经 `_zoom_font()` 按预设档位步进；`SessionTab` 在接收区与发送编辑区的 `viewport()` 上安装事件过滤器，把带 `Ctrl` 的滚轮事件转成 `font_zoom_requested(int)` 信号。全局样式表在控件挂载和主题切换时会重新 polish 并覆盖显式设置的字体，因此 `MainWindow` 在 `addTab()` 之后以及 `_theme_changed()` 里都会重新调用 `set_data_font_size()`，字号不会因换主题而回退。
 - 自动换行：接收标题行的 `wrap_check`（默认开启）经 `ReceivePanel._settings_changed()` 调用 `TerminalOutput.set_wrap_enabled()`；开启时控件使用 `LineWrapMode.WidgetWidth` 与 `QTextOption.WrapMode.WrapAnywhere` 按宽度折行，关闭时恢复 `NoWrap`，分栏与终端视图共用同一控件，状态随 `SessionPreferences.wrap_enabled` 持久化。
-- 接收区只读：分栏与终端视图都不允许修改接收内容，右键菜单固定只有“复制”“全选”（`TerminalOutput.contextMenuEvent()` 调用 `_build_context_menu()`，不提供剪切/删除/粘贴/撤销/重做）；终端模式下 `_handle_terminal_command()` 先处理 `Copy`，避免 `_constrain_cursor()` 清空草稿外选区导致复制失效，并把 `Paste` 先约束到输入草稿，防止粘贴写进日志正文。
+- 接收区只读：分栏与终端视图都不允许修改接收内容，有选中内容时右键直接复制并发出 `TerminalOutput.copied(int)` 信号（`SessionTab._show_copy_hint()` 在底部状态条短暂提示复制的字符数，提示期间 `_refresh_status()` 保留提示文本，超时由 `_copy_hint_timer` 恢复实时状态），没有选中时才由 `contextMenuEvent()` 调用 `_build_context_menu()` 弹出只含“全选”的菜单；不提供剪切/删除/粘贴/撤销/重做；终端模式下 `_handle_terminal_command()` 先处理 `Copy`（Ctrl+C 静默复制），避免 `_constrain_cursor()` 清空草稿外选区导致复制失效，并把 `Paste` 先约束到输入草稿，防止粘贴写进日志正文。
 
 界面组件只通过 controller 的公共方法执行动作；跨线程 UI 更新必须经过 queued signal 或 Qt 定时器，禁止直接从 Worker 修改控件。
 

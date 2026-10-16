@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QSignalBlocker, Qt, Signal, Slot
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSignalBlocker, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QAction, QActionGroup, QHideEvent, QShowEvent, QWheelEvent
 from PySide6.QtWidgets import (
     QFrame,
@@ -39,6 +39,9 @@ from qserialtool.ui.theme_manager import data_colors
 _SIDEBAR_MIN_WIDTH = 260
 _SIDEBAR_MAX_WIDTH = 360
 _SIDEBAR_DEFAULT_WIDTH = 272
+
+# 右键直接复制后状态条提示的显示时长；期间状态文本保持提示内容。
+_COPY_HINT_MS = 1500
 
 _STATE_LABELS = {
     SessionState.DISCONNECTED: "未连接",
@@ -77,6 +80,9 @@ class SessionTab(QWidget):
         self._sidebar_width = _SIDEBAR_DEFAULT_WIDTH
         self._view_mode: ViewMode = preferences.view_mode if preferences else "split"
         self._split_view_state: QByteArray | None = None
+        self._copy_hint_timer = QTimer(self)
+        self._copy_hint_timer.setSingleShot(True)
+        self._copy_hint_timer.timeout.connect(self._refresh_status)
         self._build_ui(port_provider, preferences)
         bridge.snapshot_changed.connect(self._on_snapshot, Qt.ConnectionType.QueuedConnection)
         bridge.record_received.connect(self._on_record, Qt.ConnectionType.QueuedConnection)
@@ -309,6 +315,7 @@ class SessionTab(QWidget):
         self.connection_panel.config_changed.connect(self._refresh_status)
         self.receive_panel.set_line_submit_handler(self.send_panel.send_content)
         self.receive_panel.set_history_provider(lambda: self.send_panel.history)
+        self.receive_panel.output.copied.connect(self._show_copy_hint)
         self.receive_panel.preferences_changed.connect(self.preferences_changed.emit)
         self.send_panel.preferences_changed.connect(self._sync_terminal_send_menu)
         self.send_panel.preferences_changed.connect(self.preferences_changed.emit)
@@ -339,13 +346,21 @@ class SessionTab(QWidget):
             f"{_STATE_LABELS[snapshot.state]} | {port_label} | "
             f"RX {snapshot.rx_bytes} B | TX {snapshot.tx_bytes} B"
         )
-        self.status_label.setText(status_text)
+        # 复制提示期间保留提示文本，避免被随记录到达的状态刷新冲掉。
+        if not self._copy_hint_timer.isActive():
+            self.status_label.setText(status_text)
         self.status_label.setToolTip(status_text)
         # 每次记录都会刷新状态文本，但样式表只在状态颜色变化时重设，避免反复 polish。
         color = self._state_color(snapshot.state)
         if color != self._state_color_cache:
             self._state_color_cache = color
             self.state_indicator.setStyleSheet(f"color: {color}; font-weight: bold;")
+
+    @Slot(int)
+    def _show_copy_hint(self, count: int) -> None:
+        """右键直接复制后，在状态条短暂提示复制的字符数。"""
+        self.status_label.setText(f"已复制 {count} 个字符")
+        self._copy_hint_timer.start(_COPY_HINT_MS)
 
     @staticmethod
     def _state_color(state: SessionState) -> str:
