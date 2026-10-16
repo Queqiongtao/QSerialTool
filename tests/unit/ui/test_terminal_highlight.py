@@ -1,8 +1,16 @@
-"""测试终端视图的地址与链接模式识别。"""
+"""测试终端视图高亮：模式识别与渲染叠加。"""
 
 import pytest
+from tests.fixtures.fakes import FakeTransport
+from tests.fixtures.ui_helpers import (
+    build_window,
+    connect_session,
+    current_tab,
+    fragment_formats,
+)
 
 from qserialtool.ui.terminal_highlight import find_highlights
+from qserialtool.ui.theme_manager import ansi_color, highlight_colors
 
 
 def test_detects_ipv4_as_address() -> None:
@@ -72,3 +80,94 @@ def test_url_wins_over_embedded_keyword() -> None:
 
 def test_address_and_keyword_can_coexist() -> None:
     assert find_highlights("1.2.3.4 OK") == ((0, 7, "address"), (8, 10, "success"))
+
+
+def test_terminal_highlights_addresses_and_links_but_keeps_ansi_colors(
+    qtbot: object,
+) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"ip 10.0.0.1 link https://a.com/x\r\n")
+        transport.push_read(b"\x1b[31m10.0.0.1\x1b[0m\r\n")
+
+        qtbot.waitUntil(lambda: output.toPlainText().count("10.0.0.1") == 2, timeout=2000)
+        formats = fragment_formats(output)
+        colors = highlight_colors()
+
+        assert ("10.0.0.1", colors.address) in formats
+        assert ("https://a.com/x", colors.link) in formats
+        assert ("10.0.0.1", ansi_color(1)) in formats
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_highlights_success_error_and_warning_keywords(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        output = tab.receive_panel.output
+
+        transport.push_read(b"OK ERROR WARN\r\n")
+
+        qtbot.waitUntil(lambda: output.toPlainText().strip() == "OK ERROR WARN", timeout=2000)
+        formats = fragment_formats(output)
+        colors = highlight_colors()
+
+        assert ("OK", colors.success) in formats
+        assert ("ERROR", colors.error) in formats
+        assert ("WARN", colors.warning) in formats
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_terminal_highlight_toggle_disables_all_highlighting(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+
+    try:
+        connect_session(qtbot, tab)
+        tab.set_view_mode("terminal", persist=False)
+        panel = tab.receive_panel
+        output = panel.output
+        colors = highlight_colors()
+
+        transport.push_read(b"OK 10.0.0.1\r\n")
+        qtbot.waitUntil(lambda: output.toPlainText().strip() == "OK 10.0.0.1", timeout=2000)
+        assert ("OK", colors.success) in fragment_formats(output)
+        assert ("10.0.0.1", colors.address) in fragment_formats(output)
+        assert tab.to_preferences().highlight_enabled is True
+
+        panel.highlight_check.setChecked(False)
+        qtbot.waitUntil(
+            lambda: (
+                not any(
+                    color in {colors.success, colors.address}
+                    for _, color in fragment_formats(output)
+                )
+            ),
+            timeout=2000,
+        )
+        assert tab.to_preferences().highlight_enabled is False
+
+        panel.highlight_check.setChecked(True)
+        qtbot.waitUntil(
+            lambda: ("OK", colors.success) in fragment_formats(output),
+            timeout=2000,
+        )
+    finally:
+        tab.controller.close(force=True)
+        window.close()

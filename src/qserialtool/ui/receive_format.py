@@ -1,7 +1,7 @@
 """接收区分栏视图的记录显示格式化纯函数。"""
 
 from qserialtool.domain import DisplayMode, LogRecord
-from qserialtool.ui.terminal_output import format_timestamp
+from qserialtool.ui.terminal_render_format import format_timestamp
 from qserialtool.ui.theme_manager import data_colors
 
 
