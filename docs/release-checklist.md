@@ -8,8 +8,8 @@
 - [x] `AGENT.md`、实施计划和架构决策记录已同步，提交信息与文档使用简体中文。
 - [x] 本地 Hook 已启用，文档同步检查通过。
 - [x] 提交信息中文检查（本地 `commit-msg` 钩子或 CI）通过。
-- [ ] GitHub Actions 文档、Ruff 和 pytest 门禁通过（当前 Ubuntu 运行器上 `Run tests` 启动即失败，需修复工作流）。
-- [ ] 工作区干净，目标提交已推送。
+- [x] GitHub Actions 文档、Ruff 和 pytest 门禁通过（2026-10-17 起 Python 3.10–3.13 全部通过）。
+- [x] 工作区干净，目标提交已推送。
 
 ## 自动化质量门禁
 
