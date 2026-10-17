@@ -24,7 +24,7 @@
 
 - [x] `scripts/build.bat` 在干净环境成功。
 - [x] 生成 `QSerialTool.exe` 和 SHA-256。
-- [ ] 单文件在未安装 Python 的干净 Windows 测试机启动（本机已可启动，干净环境待测）。
+- [x] 单文件在未安装 Python 的干净 Windows 测试机启动（2026-10-17 已验收）。
 - [x] 无缺失 Qt 插件（本机单文件启动验证）。
 - [x] 窗口、任务栏与 `QSerialTool.exe` 图标显示正确（本机核对）。
 - [x] 配置文件可在用户 AppData 创建并恢复标签（本机核对）。
