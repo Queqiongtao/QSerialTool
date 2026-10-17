@@ -73,11 +73,16 @@ jobs:
         run: python -m ruff check .
 
       - name: Run tests
-        run: python -m pytest --junitxml=pytest.xml
+        run: |
+          set +e
+          timeout --signal=ABRT 480 python -X faulthandler -m pytest --junitxml=pytest.xml > pytest.out 2>&1
+          echo $? > pytest.exit
+          exit "$(cat pytest.exit)"
 
       - name: Report failing tests
         if: failure()
         run: |
+          echo "::error::pytest 退出码 $(cat pytest.exit 2>/dev/null || echo 未知)"
           if [ -f pytest.xml ]; then
             python - <<'PY'
           import xml.etree.ElementTree as ET
@@ -91,13 +96,15 @@ jobs:
               if problem is None:
                   continue
               name = "::".join(filter(None, (case.get("classname"), case.get("name"))))
-              lines = (problem.get("message") or "").strip().splitlines()
-              detail = lines[0][:160] if lines else (problem.get("type") or "")
+              text_lines = [line.strip() for line in (problem.text or "").splitlines() if line.strip()]
+              detail = " | ".join(text_lines[-2:])[:200] if text_lines else (problem.get("message") or "")
               failures.append(f"{name} - {detail}")
-          for line in failures[:10]:
+          for line in failures[:8]:
               print(f"::error::{line}")
           print(f"::warning::共 {len(failures)} 个失败或错误用例")
           PY
           else
-            echo "::error::pytest 未生成 JUnit 报告，可能在启动阶段退出"
+            tail -n 8 pytest.out | while IFS= read -r line; do
+              echo "::error::pytest 输出: $line"
+            done
           fi

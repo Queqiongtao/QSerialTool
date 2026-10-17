@@ -36,10 +36,13 @@ def connect_session(qtbot: object, tab: SessionTab) -> None:
     tab.connection_panel.port_combo.setEditText("COM1")
     tab.connection_panel.baud_combo.setEditText("9600")
     qtbot.mouseClick(tab.connection_panel.connect_button, Qt.MouseButton.LeftButton)
+    # 快照经队列连接异步送达；必须等 UI 真正应用了 CONNECTED（发送按钮启用），
+    # 否则后续断言可能撞上尚未更新的连接状态。
     qtbot.waitUntil(
         lambda: (
             tab.controller.state is SessionState.CONNECTED
             and not tab.connection_panel.port_combo.isEnabled()
+            and tab.send_panel.send_button.isEnabled()
         ),
         timeout=2000,
     )
