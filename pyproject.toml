@@ -73,6 +73,9 @@ qserialtool = [
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "hardware: 需要真实串口硬件的验收用例；设置 QSERIALTOOL_HW_PORTS=应用端口,对端端口 后运行",
+]
 addopts = [
   "--strict-config",
   "--strict-markers",

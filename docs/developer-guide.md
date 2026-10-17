@@ -270,6 +270,8 @@ UI 测试按主题拆分文件：`test_main_window_sessions.py`、`test_main_win
 
 `scripts/build.ps1` 与 CI 以 `QT_QPA_PLATFORM=offscreen` 运行 pytest：该平台只有泛型字体、文字度量与真实系统字体不同，界面宽度类断言必须按 `sizeHint()` 或实际可用宽度相对判断，不得依赖固定像素预算或默认 1180px 窗口宽度。
 
+真实串口硬件验收：`tests/integration/test_real_serial_hardware.py` 以 `pytest.mark.hardware` 标记，默认跳过；两个交叉接线（TX↔RX、共地）的 USB 转串口模块就绪后，设置 `QSERIALTOOL_HW_PORTS=应用端口,对端端口` 并以 `-m hardware` 运行，覆盖文本/HEX 字节一致、GB18030 中文、波特率矩阵、高频接收与暂停、周期发送停止和端口占用错误。`scripts/serial_peer.py` 提供对端回显、注入与期望字节校验（`--mode verify`），`scripts/monitor_serialtool.py` 定时采样 QSerialTool 进程的私有内存、工作集、句柄数与自动日志大小，供长时间稳定性验收使用；运行中拔插与两小时稳定性按 `docs/release-checklist.md` 人工执行并记录在“硬件验收记录”。
+
 `scripts/check_commit_message.py` 校验提交信息是否使用 Conventional Commits 类型前缀并包含简体中文标题与正文，合并与回滚自动提交会被跳过。该检查是启发式门禁，只验证中文字符存在，语义质量仍由人工审查保证。
 
 GitHub Actions 在 push 和 pull request 上以 Python 3.10–3.13 矩阵执行同一文档同步与提交信息检查、Ruff 和离屏 pytest；测试前用 apt 安装 Qt 离屏运行所需的系统库（`libegl1`、`libgl1`、`libxkbcommon0`、`libdbus-1-3`、`libfontconfig1`、`libglib2.0-0`），并执行一次 PySide6 导入冒烟，避免 pytest-qt 在插件加载阶段因缺少原生库而内部错误退出；pytest 以 `--junitxml` 生成 JUnit 报告，失败时解析报告把失败用例与断言摘要写成 `::error::` 注解（CI 日志需登录才能查看，注解可公开读取），不用管道捕获输出；测试进程置于 `timeout --signal=ABRT 480` 与 `-X faulthandler` 下，若挂起超时会输出全部线程栈到 `pytest.out`，注解回退展示输出末尾便于定位。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
