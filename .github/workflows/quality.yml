@@ -73,4 +73,18 @@ jobs:
         run: python -m ruff check .
 
       - name: Run tests
-        run: python -m pytest
+        run: |
+          set -o pipefail
+          python -m pytest 2>&1 | tee pytest.log
+
+      - name: Report failing tests
+        if: failure()
+        run: |
+          if [ -f pytest.log ]; then
+            grep -E "^(FAILED|ERROR)" pytest.log | head -10 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            tail -n 3 pytest.log | while IFS= read -r line; do
+              echo "::error::summary: $line"
+            done
+          fi
