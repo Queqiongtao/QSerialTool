@@ -1,7 +1,11 @@
 """测试接收标题行的溢出折叠与“⋯”菜单同步。"""
 
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QWidget
 from tests.fixtures.fakes import FakeTransport
 from tests.fixtures.ui_helpers import build_window, current_tab
+
+from qserialtool.ui import ReceivePanel
+from qserialtool.ui.receive_header import HeaderOverflow
 
 
 def _expanded_controls(receive_panel: object) -> tuple:
@@ -148,3 +152,42 @@ def test_receive_header_overflow_action_mirrors_checkbox_state(qtbot: object) ->
         assert len(texts) == len(set(texts))
     finally:
         window.close()
+
+
+def test_header_overflow_skips_parentless_widgets(qtbot: object) -> None:
+    """未挂父级的控件不得被显示成顶层窗口（启动期小窗闪烁的根因）。"""
+    container = QWidget()
+    qtbot.addWidget(container)
+    row = QHBoxLayout(container)
+    overflow = HeaderOverflow(container, row)
+    checkbox = QCheckBox("测试项")
+    overflow.register(checkbox, rank=20)
+
+    overflow.reflow()
+    # 无父控件：跳过可见性写入，保持显式隐藏，避免 setVisible(True) 变出顶层窗口。
+    assert checkbox.isHidden()
+
+    row.addWidget(checkbox)
+    overflow.reflow()
+    assert not checkbox.isHidden()
+
+
+def test_receive_panel_construction_never_shows_parentless_widgets(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    """构造 ReceivePanel 期间不允许对无父控件的控件执行 setVisible(True)。"""
+    shown_parentless: list[str] = []
+    original = QWidget.setVisible
+
+    def spy(self: QWidget, visible: bool) -> None:
+        if visible and self.parent() is None:
+            shown_parentless.append(type(self).__name__)
+        original(self, visible)
+
+    monkeypatch.setattr(QWidget, "setVisible", spy)
+    panel = ReceivePanel(records_provider=lambda: (), clear_callback=lambda: 0)
+    shown_during_construction = list(shown_parentless)
+    qtbot.addWidget(panel)
+
+    assert shown_during_construction == []

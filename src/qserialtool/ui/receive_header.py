@@ -42,6 +42,19 @@ class HeaderItem:
     mode_visible: bool = True
 
 
+def _set_widget_visible(widget: QWidget, visible: bool) -> None:
+    """写入控件可见性；尚未挂父级时跳过，避免被显示成顶层窗口。
+
+    构造期 ``reflow()`` 可能在控件进入布局之前执行：对无父控件的
+    ``setVisible(True)`` 会让 Qt 把它当作顶层窗口显示（带系统标题栏、
+    客户区未绘制呈白色），表现为启动时的小窗闪烁。控件挂上父级后的
+    下一次 ``reflow()``（面板尺寸变化）会补上正确的可见性。
+    """
+    if widget.parent() is None:
+        return
+    widget.setVisible(visible)
+
+
 class HeaderOverflow(QObject):
     """按可用宽度把次要标题行控件折叠进“⋯”菜单。
 
@@ -80,7 +93,7 @@ class HeaderOverflow(QObject):
         """记录控件是否应随视图模式显示，然后重新评估折叠。"""
         item = self._item_for(widget)
         if item is None:
-            widget.setVisible(visible)
+            _set_widget_visible(widget, visible)
             return
         item.mode_visible = visible
         self.reflow()
@@ -124,7 +137,7 @@ class HeaderOverflow(QObject):
         for widget, action in self._actions.items():
             item = self._item_for(widget)
             is_folded = widget in folded
-            widget.setVisible(item.mode_visible and not is_folded)
+            _set_widget_visible(widget, item.mode_visible and not is_folded)
             action.setVisible(is_folded)
         self.button.setVisible(bool(folded))
 
