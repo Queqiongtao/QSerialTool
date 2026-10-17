@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from qserialtool.domain import Theme
+from qserialtool.ui.icons import set_action_icon
 from qserialtool.ui.session_tab import SessionTab
 from qserialtool.ui.theme_manager import (
     DATA_FONT_PRESETS,
@@ -58,6 +59,8 @@ class MainActions:
 
     main_menu: QMenu
     menu_button: QToolButton
+    sidebar_button: QToolButton
+    view_button: QToolButton
     window_buttons: WindowButtons | None
     header_tools: QWidget
     theme_menu: QMenu
@@ -143,10 +146,15 @@ def build_main_actions(  # noqa: PLR0913
         window.addAction(action)
 
     menu_button = _build_menu_button(window, main_menu)
+    sidebar_button = _build_sidebar_button(window)
+    view_button = _build_view_button(window)
 
     tabs.setDocumentMode(True)
     header_tools = _install_header_tools(
-        window, menu_button=menu_button, window_buttons=window_buttons
+        window,
+        session_buttons=(sidebar_button, view_button),
+        menu_button=menu_button,
+        window_buttons=window_buttons,
     )
     tabs.setCornerWidget(header_tools, Qt.Corner.TopRightCorner)
     # 设置角落控件会重新挂载父级并隐藏控件，必须显式显示。
@@ -156,6 +164,8 @@ def build_main_actions(  # noqa: PLR0913
     return MainActions(
         main_menu=main_menu,
         menu_button=menu_button,
+        sidebar_button=sidebar_button,
+        view_button=view_button,
         window_buttons=window_buttons,
         header_tools=header_tools,
         theme_menu=theme_menu,
@@ -183,18 +193,51 @@ def _build_menu_button(window: QWidget, menu: QMenu) -> QToolButton:
     return button
 
 
+def _build_sidebar_button(window: QWidget) -> QToolButton:
+    """构造标签行顶部的“收起设置”按钮；勾选态表示侧栏已收起。"""
+    button = QToolButton(window)
+    button.setText("收起设置")
+    set_action_icon(button, "sidebar")
+    # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    button.setCheckable(True)
+    button.setAutoRaise(True)
+    button.setFixedHeight(HEADER_BUTTON_SIZE_PX)
+    button.setToolTip("显示或隐藏左侧设置面板")
+    return button
+
+
+def _build_view_button(window: QWidget) -> QToolButton:
+    """构造标签行顶部的“终端/分栏”视图切换按钮；勾选态表示终端视图。"""
+    button = QToolButton(window)
+    button.setText("终端")
+    set_action_icon(button, "terminal")
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    button.setCheckable(True)
+    button.setAutoRaise(True)
+    button.setFixedHeight(HEADER_BUTTON_SIZE_PX)
+    button.setToolTip("切换为终端视图：日志与输入同屏")
+    return button
+
+
 def _install_header_tools(
     window: QWidget,
     *,
+    session_buttons: tuple[QToolButton, ...],
     menu_button: QToolButton,
     window_buttons: WindowButtons | None,
 ) -> QWidget:
-    """把“☰”按钮与窗口按钮装配成标签栏右上角控件。"""
+    """把会话级按钮、“☰”按钮与窗口按钮装配成标签栏右上角控件。"""
     header_tools = QWidget(window)
     header_tools.setObjectName("headerTools")
     layout = QHBoxLayout(header_tools)
     layout.setContentsMargins(2, 0, 0, 0)
     layout.setSpacing(0)
+    for index, button in enumerate(session_buttons):
+        if index:
+            layout.addSpacing(4)
+        layout.addWidget(button)
+    layout.addSpacing(6)
     layout.addWidget(menu_button)
     if window_buttons is not None:
         layout.addSpacing(6)

@@ -3,10 +3,10 @@
 from collections.abc import Callable
 
 from PySide6.QtCore import QElapsedTimer, QEvent, QObject, QSignalBlocker, Qt, QTimer, Signal
-from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -18,9 +18,8 @@ from PySide6.QtWidgets import (
 from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences, TerminalScreen
 from qserialtool.ui.icons import set_action_icon, svg_icon
 from qserialtool.ui.receive_format import record_segments, should_show
-from qserialtool.ui.receive_header import FOLD_RANKS, HeaderOverflow, assemble_header_row
 from qserialtool.ui.terminal_output import TerminalOutput
-from qserialtool.ui.theme_manager import data_colors, data_font
+from qserialtool.ui.theme_manager import CONTROL_HEIGHT_PX, data_colors, data_font
 
 # 内存缓冲仍保留 100,000 条，界面只渲染最近若干条，避免整表重插阻塞主线程。
 _MAX_RENDERED_RECORDS = 2000
@@ -32,6 +31,18 @@ _FLUSH_INTERVAL_MS = 30
 # 分栏空态的居中提示；终端视图或已有内容时隐藏。
 _EMPTY_TITLE = "暂无数据"
 _EMPTY_HINT = "连接成功后，接收内容会显示在这里"
+
+
+def _settings_row(parent: QWidget, *widgets: QWidget) -> QWidget:
+    """把一行设置控件装进透明容器，便于整行按视图模式显隐。"""
+    row = QWidget(parent)
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    for widget in widgets:
+        layout.addWidget(widget)
+    layout.addStretch(1)
+    return row
 
 
 class ReceivePanel(QWidget):
@@ -66,19 +77,6 @@ class ReceivePanel(QWidget):
         self.render_records()
 
     def _build_ui(self) -> None:
-        header = QHBoxLayout()
-        header.setSpacing(6)
-        self._header_layout = header
-        self._header_overflow = HeaderOverflow(self, header)
-        # 标题行控件创建时即挂到面板上：HeaderOverflow 在控件进入布局之前就会
-        # 通过 setVisible() 写入可见性，而无父控件的 setVisible(True) 会被 Qt
-        # 显示成带系统标题栏的顶层窗口（启动期小窗闪烁，见 receive_header）。
-        heading = QLabel("接收", self)
-        heading.setObjectName("panelHeading")
-        self._heading_label = heading
-        heading_font = heading.font()
-        heading_font.setBold(True)
-        heading.setFont(heading_font)
         self.mode_combo = QComboBox(self)
         self.mode_combo.addItem("文本", "text")
         self.mode_combo.addItem("HEX", "hex")
@@ -100,27 +98,9 @@ class ReceivePanel(QWidget):
         self.highlight_check.setChecked(True)
         self.wrap_check = QCheckBox("自动换行", self)
         self.wrap_check.setChecked(True)
-
-        self._register_header_widgets()
-        assemble_header_row(
-            header,
-            heading=heading,
-            filters=(
-                self.mode_combo,
-                self.timestamp_check,
-                self.terminal_timestamp_check,
-                self.rx_check,
-                self.tx_check,
-            ),
-            controls=(
-                self.pause_button,
-                self.clear_button,
-                self.highlight_check,
-                self.wrap_check,
-                self.autoscroll_check,
-            ),
-            overflow=self._header_overflow,
-        )
+        # 设置卡片由 SessionTab 放进左侧栏；控件在构造时即挂到面板上并随卡片
+        # 组装，任何可见性写入都发生在有父级之后（见 receive_header 的教训）。
+        self.settings_card = self._build_settings_card()
 
         self.output = TerminalOutput()
         self.output.setFont(data_font())
@@ -138,39 +118,71 @@ class ReceivePanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        layout.addLayout(header)
+        layout.setSpacing(0)
         layout.addWidget(self.output)
 
-    def _register_header_widgets(self) -> None:
-        """登记标题行控件与折叠优先级，并初始化按模式显示的开关可见性。"""
-        self._header_overflow.register(self._heading_label, 0)
-        self._header_overflow.register(self.mode_combo, 0)
-        for name, rank in FOLD_RANKS:
-            self._header_overflow.register(getattr(self, name), rank)
-        self._header_overflow.set_mode_visible(self.highlight_check, False)
-        self._header_overflow.set_mode_visible(self.terminal_timestamp_check, False)
+    def _build_settings_card(self) -> QGroupBox:
+        """构造挂到侧边栏的“接收设置”卡片。
 
-    def add_leading_header_widget(self, widget: QWidget, *, fold_rank: int = 0) -> None:
-        """在接收标题行最左侧插入控件，例如侧栏折叠按钮。"""
-        self._header_layout.insertWidget(0, widget)
-        self._header_overflow.register(widget, fold_rank)
-        self._header_overflow.reflow()
+        控件按视图模式整行显隐：格式、时间戳与 RX/TX 只在分栏视图出现，
+        高亮与终端时间戳只在终端视图出现，工具行留给外部的终端“发送设置”。
+        """
+        card = QGroupBox("接收设置", self)
+        card.setObjectName("receiveSettings")
+        layout = QVBoxLayout(card)
+        layout.setSpacing(8)
 
-    def add_trailing_header_widget(self, widget: QWidget, *, fold_rank: int = 0) -> None:
-        """在接收标题行末尾插入控件，例如视图模式切换按钮。"""
-        self._header_layout.insertWidget(self._header_layout.count() - 1, widget)
-        self._header_overflow.register(widget, fold_rank)
-        self._header_overflow.reflow()
+        self._mode_row = _settings_row(card, QLabel("格式", card), self.mode_combo)
+        self._filters_row = _settings_row(card, self.timestamp_check, self.rx_check, self.tx_check)
+        self._terminal_row = _settings_row(
+            card, self.highlight_check, self.terminal_timestamp_check
+        )
+        view_row = _settings_row(card, self.wrap_check, self.autoscroll_check)
+
+        actions = QWidget(card)
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(8)
+        actions_layout.addWidget(self.pause_button, 1)
+        actions_layout.addWidget(self.clear_button, 1)
+
+        self._tools_row = QWidget(card)
+        self._tools_layout = QHBoxLayout(self._tools_row)
+        self._tools_layout.setContentsMargins(0, 0, 0, 0)
+        self._tools_layout.setSpacing(8)
+
+        for row in (self._mode_row, self._filters_row, self._terminal_row, view_row, actions):
+            layout.addWidget(row)
+        layout.addWidget(self._tools_row)
+
+        for widget in (
+            self.mode_combo,
+            self.timestamp_check,
+            self.terminal_timestamp_check,
+            self.rx_check,
+            self.tx_check,
+            self.pause_button,
+            self.clear_button,
+            self.highlight_check,
+            self.wrap_check,
+            self.autoscroll_check,
+        ):
+            widget.setFixedHeight(CONTROL_HEIGHT_PX)
+        self._terminal_row.setVisible(False)
+        self._tools_row.setVisible(False)
+        return card
+
+    def add_settings_tool(self, widget: QWidget) -> None:
+        """把外部工具控件（终端“发送设置”按钮）追加到设置卡片底部。"""
+        self._tools_layout.addWidget(widget)
 
     def set_terminal_mode(self, enabled: bool) -> None:
         """启用原始终端显示和日志区内联输入。"""
         self._terminal_mode = enabled
-        for widget in (self.timestamp_check, self.rx_check, self.tx_check):
-            self._header_overflow.set_mode_visible(widget, not enabled)
-        self._header_overflow.set_mode_visible(self.highlight_check, enabled)
-        self._header_overflow.set_mode_visible(self.terminal_timestamp_check, enabled)
-        self.mode_combo.setVisible(not enabled)
+        self._mode_row.setVisible(not enabled)
+        self._filters_row.setVisible(not enabled)
+        self._terminal_row.setVisible(enabled)
+        self._tools_row.setVisible(enabled)
         if not enabled:
             self._screen = None
         self.output.set_terminal_mode(enabled)
@@ -182,10 +194,6 @@ class ReceivePanel(QWidget):
         if watched is self.output.viewport() and event.type() is QEvent.Type.Resize:
             self._place_empty_state()
         return super().eventFilter(watched, event)
-
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        super().resizeEvent(event)
-        self._header_overflow.reflow()
 
     def set_line_submit_handler(self, handler: Callable[[str], bool]) -> None:
         """设置终端行提交回调。"""

@@ -1,19 +1,18 @@
 """分栏与终端视图的切换控制。"""
 
-from PySide6.QtCore import QByteArray, QObject, QSignalBlocker, Qt, Signal
-from PySide6.QtWidgets import QSplitter, QToolButton, QWidget
+from PySide6.QtCore import QByteArray, QObject, Signal
+from PySide6.QtWidgets import QSplitter, QWidget
 
 from qserialtool.domain import ViewMode
-from qserialtool.ui.icons import set_action_icon, svg_icon
 from qserialtool.ui.receive_panel import ReceivePanel
 from qserialtool.ui.send_panel import SendPanel
-from qserialtool.ui.terminal_send_menu import TerminalSendMenu
 
 
 class ViewModeController(QObject):
-    """管理分栏/终端视图切换、切换按钮和接收/发送分栏比例记忆。"""
+    """管理分栏/终端视图切换与接收/发送分栏比例记忆。"""
 
     preferences_changed = Signal()
+    mode_changed = Signal(str)
 
     def __init__(
         self,
@@ -22,32 +21,18 @@ class ViewModeController(QObject):
         receive_panel: ReceivePanel,
         send_panel: SendPanel,
         splitter: QSplitter,
-        send_settings_button: TerminalSendMenu,
     ) -> None:
         super().__init__(parent)
         self._receive_panel = receive_panel
         self._send_panel = send_panel
         self._splitter = splitter
-        self._send_settings_button = send_settings_button
         self._mode: ViewMode = "split"
         self._split_view_state: QByteArray | None = None
-        self.toggle_button = QToolButton()
-        self.toggle_button.setText("终端")
-        set_action_icon(self.toggle_button, "terminal")
-        # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
-        self.toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.toggle_button.setCheckable(True)
-        self.toggle_button.setAutoRaise(True)
-        self.toggle_button.setToolTip("勾选切换为终端视图：日志与输入同屏")
-        self.toggle_button.toggled.connect(self._on_toggled)
 
     @property
     def mode(self) -> ViewMode:
         """返回当前视图模式。"""
         return self._mode
-
-    def _on_toggled(self, terminal: bool) -> None:
-        self.set_mode("terminal" if terminal else "split")
 
     def set_mode(self, mode: ViewMode, *, persist: bool = True) -> None:
         """在分栏视图与终端视图之间切换。"""
@@ -67,7 +52,6 @@ class ViewModeController(QObject):
             splitter.setHandleWidth(0)
             splitter.handle(1).setEnabled(False)
             splitter.setSizes([max(splitter.height(), 1), 0])
-            self._send_settings_button.setVisible(True)
             self._receive_panel.focus_terminal_input()
         else:
             self._receive_panel.set_terminal_mode(False)
@@ -79,16 +63,9 @@ class ViewModeController(QObject):
             else:
                 reference = max(splitter.height(), 400)
                 splitter.setSizes([reference * 3 // 4, max(120, reference // 4)])
-            self._send_settings_button.setVisible(False)
             self._send_panel.editor.setFocus()
 
-        with QSignalBlocker(self.toggle_button):
-            self.toggle_button.setChecked(terminal)
-        self.toggle_button.setText("分栏" if terminal else "终端")
-        self.toggle_button.setIcon(svg_icon("split" if terminal else "terminal"))
-        self.toggle_button.setToolTip(
-            "切回分栏视图：显示独立发送编辑器" if terminal else "切换为终端视图：日志与输入同屏"
-        )
+        self.mode_changed.emit(mode)
         if persist:
             self.preferences_changed.emit()
 

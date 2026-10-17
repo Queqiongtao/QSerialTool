@@ -264,9 +264,9 @@ def test_receive_panel_empty_state_overlay(qtbot: object, monkeypatch: object) -
         assert not receive_panel.empty_state.isVisible()
 
         # 终端视图隐藏提示，切回分栏且缓冲仍有内容时保持隐藏。
-        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+        qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
         assert not receive_panel.empty_state.isVisible()
-        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+        qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
         qtbot.waitUntil(
             lambda: "hello" in receive_panel.output.toPlainText(),
             timeout=2000,

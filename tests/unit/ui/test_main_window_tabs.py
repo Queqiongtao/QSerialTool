@@ -39,19 +39,19 @@ def test_session_tab_places_settings_in_left_sidebar_and_toggles(qtbot: object) 
     assert isinstance(tab.sidebar, QScrollArea)
     assert tab.sidebar.widget() is tab.sidebar_content
     assert tab.connection_panel.parentWidget() is tab.sidebar_content
+    assert tab.receive_panel.settings_card.parentWidget() is tab.sidebar_content
     assert tab.log_panel.parentWidget() is tab.sidebar_content
-    assert tab.sidebar_toggle_button.parentWidget() is tab.receive_panel
     assert tab.receive_send_splitter.widget(0) is tab.receive_panel
     assert tab.receive_send_splitter.widget(1) is tab.send_panel
     assert tab.sidebar.isVisible()
 
-    qtbot.mouseClick(tab.sidebar_toggle_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.sidebar_toggle_button, Qt.MouseButton.LeftButton)
     assert not tab.sidebar.isVisible()
-    assert tab.sidebar_toggle_button.text() == "展开设置"
+    assert window.sidebar_toggle_button.text() == "展开设置"
 
-    qtbot.mouseClick(tab.sidebar_toggle_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.sidebar_toggle_button, Qt.MouseButton.LeftButton)
     assert tab.sidebar.isVisible()
-    assert tab.sidebar_toggle_button.text() == "收起设置"
+    assert window.sidebar_toggle_button.text() == "收起设置"
     assert tab.layout_state()[0] is True
     window.close()
 
@@ -62,23 +62,12 @@ def test_send_panel_and_content_fit_narrow_window(qtbot: object) -> None:
     tab = current_tab(window)
 
     window.resize(900, 600)
-    receive_panel = tab.receive_panel
-    overflow = receive_panel._header_overflow
-    qtbot.waitUntil(lambda: bool(overflow.folded_widgets()), timeout=2000)
-    # 折叠会改变可见性并触发再一次布局；等行尾“⋯”按钮落回面板内再验证几何。
-    qtbot.waitUntil(
-        lambda: overflow.button.geometry().right() <= receive_panel.width(), timeout=2000
-    )
-
     # 发送区在最小窗口下必须完整放下；阈值随字体度量变化（构建脚本用 offscreen
     # 泛型字体），按实际可用宽度相对判断，不依赖固定像素预算。
     assert tab.send_panel.minimumSizeHint().width() <= tab.send_panel.width()
-
-    for widget in (receive_panel.pause_button, receive_panel.clear_button, tab.view_toggle_button):
-        if widget in overflow.folded_widgets():
-            continue
-        assert widget.isVisibleTo(tab)
-        assert widget.geometry().right() <= receive_panel.width()
+    # 接收标题行已整行移除：操作按钮改挂侧栏卡片，不再参与接收区宽度竞争。
+    assert tab.receive_panel.settings_card.isAncestorOf(tab.receive_panel.pause_button)
+    assert tab.receive_panel.settings_card.isAncestorOf(tab.receive_panel.clear_button)
     window.close()
 
 
@@ -110,10 +99,71 @@ def test_main_window_uses_single_row_header(qtbot: object) -> None:
     assert window.new_tab_button.parentWidget() is window.tab_bar
     assert window.new_tab_button.isVisible()
     assert window.menu_button.isVisible()
+    # 侧栏折叠与终端/分栏按钮移入标签行顶部角落，替换原接收标题行两端的位置。
+    assert window.sidebar_toggle_button.parentWidget() is corner
+    assert window.view_toggle_button.parentWidget() is corner
+    assert window.sidebar_toggle_button.isVisible()
+    assert window.view_toggle_button.isVisible()
     if window.window_buttons is not None:
         assert window.window_buttons.parentWidget() is corner
         assert window.window_buttons.isVisible()
     window.close()
+
+
+def test_top_buttons_follow_active_tab_state(qtbot: object) -> None:
+    """顶部侧栏/视图按钮反映当前标签状态，并在切换标签时同步。"""
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    first = current_tab(window)
+
+    try:
+        assert not window.sidebar_toggle_button.isChecked()
+        assert window.view_toggle_button.text() == "终端"
+
+        # 第一个标签收起侧栏并进入终端视图。
+        qtbot.mouseClick(window.sidebar_toggle_button, Qt.MouseButton.LeftButton)
+        qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
+        assert not first.sidebar.isVisible()
+        assert first.view_mode == "terminal"
+        assert window.sidebar_toggle_button.text() == "展开设置"
+        assert window.view_toggle_button.text() == "分栏"
+        assert window.view_toggle_button.isChecked()
+
+        # 新标签继承当前标签的布局状态（侧栏保持收起、视图回到分栏），
+        # 按钮随当前标签更新。
+        second = window.new_session()
+        assert window.tabs.currentWidget() is second
+        assert window.sidebar_toggle_button.isChecked()
+        assert window.sidebar_toggle_button.text() == "展开设置"
+        assert not window.view_toggle_button.isChecked()
+        assert window.view_toggle_button.text() == "终端"
+
+        window.tabs.setCurrentIndex(0)
+        assert window.sidebar_toggle_button.isChecked()
+        assert window.sidebar_toggle_button.text() == "展开设置"
+        assert window.view_toggle_button.isChecked()
+        assert window.view_toggle_button.text() == "分栏"
+        assert second.view_mode == "split"
+    finally:
+        window.close()
+
+
+def test_top_buttons_disabled_without_sessions(qtbot: object) -> None:
+    """没有会话标签时顶部按钮禁用，避免对空标签操作。"""
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+
+    try:
+        window._close_tab(0)
+        assert window.tabs.count() == 0
+        assert not window.sidebar_toggle_button.isEnabled()
+        assert not window.view_toggle_button.isEnabled()
+
+        window.new_session()
+        assert window.sidebar_toggle_button.isEnabled()
+        assert window.view_toggle_button.isEnabled()
+    finally:
+        window.close()
 
 
 def test_header_actions_keep_shortcuts_without_menu_bar(qtbot: object) -> None:
@@ -341,7 +391,8 @@ def test_sidebar_content_stays_top_aligned(qtbot: object) -> None:
         layout = tab.sidebar_content.layout()
         assert layout.itemAt(layout.count() - 1).spacerItem() is not None
         viewport_height = tab.sidebar.viewport().height()
-        assert tab.log_panel.geometry().bottom() < viewport_height - 20
+        # 内容整体收在视口内（顶部对齐、底部空区由尾部弹簧承接）。
+        assert tab.log_panel.geometry().bottom() < viewport_height
     finally:
         window.close()
 

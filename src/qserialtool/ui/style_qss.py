@@ -18,10 +18,6 @@ QLabel {{
     color: {c.text};
     background: transparent;
 }}
-QLabel#panelHeading {{
-    color: {c.text};
-    font-weight: 600;
-}}
 QLabel#statusText {{
     color: {c.muted};
     background: transparent;

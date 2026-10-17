@@ -24,10 +24,10 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     splitter.setSizes([520, 220])
     split_state = bytes(splitter.saveState().toBase64()).decode("ascii")
 
-    qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
 
-    assert tab.view_toggle_button.isChecked()
-    assert tab.view_toggle_button.text() == "分栏"
+    assert window.view_toggle_button.isChecked()
+    assert window.view_toggle_button.text() == "分栏"
     assert not tab.send_panel.isVisibleTo(tab)
     assert tab.send_settings_button.isVisibleTo(tab)
     assert not tab.receive_panel.output.isReadOnly()
@@ -53,10 +53,10 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     assert tab.send_panel.send_mode == "hex"
     assert tab.send_panel.line_ending == "lf"
 
-    qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
 
-    assert not tab.view_toggle_button.isChecked()
-    assert tab.view_toggle_button.text() == "终端"
+    assert not window.view_toggle_button.isChecked()
+    assert window.view_toggle_button.text() == "终端"
     assert tab.send_panel.isVisibleTo(tab)
     assert not tab.send_settings_button.isVisibleTo(tab)
     assert tab.receive_panel.output.isReadOnly()
@@ -76,7 +76,7 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     assert splitter.handle(1).isEnabled()
     assert bytes(splitter.saveState().toBase64()).decode("ascii") == split_state
 
-    qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
     second = window.new_session()
 
     assert tab.to_preferences().view_mode == "terminal"
@@ -139,18 +139,18 @@ def test_session_tab_restores_terminal_view_and_saved_split_state(
     tab = current_tab(window)
 
     try:
-        assert tab.view_toggle_button.isChecked()
-        assert tab.view_toggle_button.text() == "分栏"
+        assert window.view_toggle_button.isChecked()
+        assert window.view_toggle_button.text() == "分栏"
         assert not tab.send_panel.isVisibleTo(tab)
         assert tab.send_settings_button.isVisibleTo(tab)
         assert not tab.receive_panel.output.isReadOnly()
         assert tab.receive_panel.output.toPlainText() == ""
         assert tab.receive_panel.terminal_timestamp_check.isChecked()
 
-        qtbot.mouseClick(tab.view_toggle_button, Qt.MouseButton.LeftButton)
+        qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
 
-        assert not tab.view_toggle_button.isChecked()
-        assert tab.view_toggle_button.text() == "终端"
+        assert not window.view_toggle_button.isChecked()
+        assert window.view_toggle_button.text() == "终端"
         assert tab.send_panel.isVisibleTo(tab)
         assert tab.receive_panel.output.isReadOnly()
         restored_state = bytes(tab.receive_send_splitter.saveState().toBase64()).decode("ascii")

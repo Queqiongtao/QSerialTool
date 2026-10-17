@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QContextMenuEvent, QMouseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -34,7 +34,7 @@ from qserialtool.ui.about_dialog import AboutDialog
 from qserialtool.ui.app_icon import app_icon
 from qserialtool.ui.empty_state import NEW_SESSION_HREF, build_empty_state, refresh_empty_state
 from qserialtool.ui.help_window import HelpWindow
-from qserialtool.ui.icons import state_icon
+from qserialtool.ui.icons import state_icon, svg_icon
 from qserialtool.ui.main_actions import (
     MainActionCallbacks,
     apply_data_font_size,
@@ -144,6 +144,11 @@ class MainWindow(QMainWindow):
         )
         self.main_menu = actions.main_menu
         self.menu_button = actions.menu_button
+        self.sidebar_toggle_button = actions.sidebar_button
+        self.view_toggle_button = actions.view_button
+        self.sidebar_toggle_button.toggled.connect(self._on_sidebar_button_toggled)
+        self.view_toggle_button.toggled.connect(self._on_view_button_toggled)
+        self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self.theme_menu = actions.theme_menu
         self.theme_actions = actions.theme_actions
         self.new_tab_button = self.tab_bar.new_tab_button
@@ -236,10 +241,15 @@ class MainWindow(QMainWindow):
         tab.state_changed.connect(
             lambda state, widget=tab: self._on_tab_state_changed(widget, state)
         )
+        tab.sidebar_visibility_changed.connect(
+            lambda visible, widget=tab: self._on_tab_sidebar_visibility(widget, visible)
+        )
+        tab.view_mode_changed.connect(lambda mode, widget=tab: self._on_tab_view_mode(widget, mode))
         self.tabs.setCurrentIndex(index)
         # 全局样式表会在挂载时重新 polish 控件并覆盖之前设置的字体，必须在其后重新应用。
         tab.set_data_font_size(self._data_font_size)
         self._sync_empty_state()
+        self._sync_header_buttons()
         self._schedule_save()
         return tab
 
@@ -330,6 +340,55 @@ class MainWindow(QMainWindow):
         if index >= 0:
             self.tabs.setTabIcon(index, state_icon(state))
 
+    def _on_current_tab_changed(self, _index: int) -> None:
+        """切换标签后让顶部按钮反映新标签的侧栏与视图状态。"""
+        self._sync_header_buttons()
+
+    def _on_sidebar_button_toggled(self, collapsed: bool) -> None:
+        """顶部“收起设置”按钮：对当前标签显示或隐藏左侧设置面板。"""
+        tab = self.tabs.currentWidget()
+        if isinstance(tab, SessionTab):
+            tab.set_sidebar_visible(not collapsed)
+        self._sync_header_buttons()
+
+    def _on_view_button_toggled(self, terminal: bool) -> None:
+        """顶部“终端/分栏”按钮：对当前标签切换视图模式。"""
+        tab = self.tabs.currentWidget()
+        if isinstance(tab, SessionTab):
+            tab.set_view_mode("terminal" if terminal else "split")
+        self._sync_header_buttons()
+
+    def _on_tab_sidebar_visibility(self, tab: SessionTab, _visible: bool) -> None:
+        """当前标签的侧栏可见性变化后同步顶部按钮。"""
+        if self.tabs.currentWidget() is tab:
+            self._sync_header_buttons()
+
+    def _on_tab_view_mode(self, tab: SessionTab, _mode: str) -> None:
+        """当前标签的视图模式变化后同步顶部按钮。"""
+        if self.tabs.currentWidget() is tab:
+            self._sync_header_buttons()
+
+    def _sync_header_buttons(self) -> None:
+        """按当前标签同步标签行顶部按钮的可用性、勾选态与文案。"""
+        tab = self.tabs.currentWidget()
+        enabled = isinstance(tab, SessionTab)
+        self.sidebar_toggle_button.setEnabled(enabled)
+        self.view_toggle_button.setEnabled(enabled)
+        if not isinstance(tab, SessionTab):
+            return
+        sidebar_visible = tab.sidebar_visible
+        with QSignalBlocker(self.sidebar_toggle_button):
+            self.sidebar_toggle_button.setChecked(not sidebar_visible)
+        self.sidebar_toggle_button.setText("展开设置" if not sidebar_visible else "收起设置")
+        terminal = tab.view_mode == "terminal"
+        with QSignalBlocker(self.view_toggle_button):
+            self.view_toggle_button.setChecked(terminal)
+        self.view_toggle_button.setText("分栏" if terminal else "终端")
+        self.view_toggle_button.setIcon(svg_icon("split" if terminal else "terminal"))
+        self.view_toggle_button.setToolTip(
+            "切回分栏视图：显示独立发送编辑器" if terminal else "切换为终端视图：日志与输入同屏"
+        )
+
     def _refresh_tab_state_icons(self) -> None:
         """主题切换后按新配色重绘所有标签的状态圆点。"""
         for index in range(self.tabs.count()):
@@ -369,6 +428,7 @@ class MainWindow(QMainWindow):
         # 释放整棵控件树、端口轮询定时器和该会话最多 32 MiB 的记录缓冲。
         widget.deleteLater()
         self._sync_empty_state()
+        self._sync_header_buttons()
         self._schedule_save()
 
     def _clear_current_receive(self) -> None:

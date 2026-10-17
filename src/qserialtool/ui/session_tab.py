@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -28,7 +27,6 @@ from qserialtool.domain import (
 )
 from qserialtool.ui.connection_panel import ConnectionPanel
 from qserialtool.ui.font_zoom import FontZoomFilter
-from qserialtool.ui.icons import set_action_icon
 from qserialtool.ui.log_panel import LogPanel
 from qserialtool.ui.qt_bridge import QtSessionBridge
 from qserialtool.ui.receive_panel import ReceivePanel
@@ -54,6 +52,9 @@ class SessionTab(QWidget):
     font_zoom_requested = Signal(int)
     # 会话状态变化时广播（含初始快照）；窗口据此刷新标签栏状态圆点。
     state_changed = Signal(object)
+    # 侧栏可见性与视图模式变化时广播；主窗口据此同步标签行顶部的按钮。
+    sidebar_visibility_changed = Signal(bool)
+    view_mode_changed = Signal(str)
 
     def __init__(
         self,
@@ -87,7 +88,6 @@ class SessionTab(QWidget):
         self._font_zoom_filter.zoom_requested.connect(self.font_zoom_requested.emit)
         self.receive_panel.output.viewport().installEventFilter(self._font_zoom_filter)
         self.send_panel.editor.viewport().installEventFilter(self._font_zoom_filter)
-        self._build_sidebar_toggle()
         self._build_terminal_send_menu()
         self._build_sidebar()
         self._build_content()
@@ -117,24 +117,13 @@ class SessionTab(QWidget):
         self.send_panel = SendPanel(controller=self.controller, preferences=preferences)
         self.log_panel = LogPanel(controller=self.controller)
 
-    def _build_sidebar_toggle(self) -> None:
-        self.sidebar_toggle_button = QToolButton()
-        self.sidebar_toggle_button.setText("收起设置")
-        set_action_icon(self.sidebar_toggle_button, "sidebar")
-        # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
-        self.sidebar_toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.sidebar_toggle_button.setCheckable(True)
-        self.sidebar_toggle_button.setAutoRaise(True)
-        self.sidebar_toggle_button.setToolTip("显示或隐藏左侧设置面板")
-        self.sidebar_toggle_button.clicked.connect(self._toggle_sidebar)
-        self.receive_panel.add_leading_header_widget(self.sidebar_toggle_button)
-
     def _build_terminal_send_menu(self) -> None:
         self.send_settings_button = TerminalSendMenu()
         self.send_settings_button.send_mode_selected.connect(self.send_panel.set_send_mode)
         self.send_settings_button.line_ending_selected.connect(self.send_panel.set_line_ending)
         self.send_settings_button.history_selected.connect(self.receive_panel.set_terminal_draft)
-        self.receive_panel.add_trailing_header_widget(self.send_settings_button)
+        # 只挂在卡片工具行；整行由接收面板按视图模式显隐（终端视图才出现）。
+        self.receive_panel.add_settings_tool(self.send_settings_button)
 
     def _sync_terminal_send_menu(self) -> None:
         """让终端发送设置菜单反映当前发送偏好和历史。"""
@@ -150,15 +139,14 @@ class SessionTab(QWidget):
             receive_panel=self.receive_panel,
             send_panel=self.send_panel,
             splitter=self.receive_send_splitter,
-            send_settings_button=self.send_settings_button,
         )
         self._view_controller.preferences_changed.connect(self.preferences_changed.emit)
-        self.receive_panel.add_trailing_header_widget(self._view_controller.toggle_button)
+        self._view_controller.mode_changed.connect(self.view_mode_changed.emit)
 
     @property
-    def view_toggle_button(self) -> QToolButton:
-        """返回终端/分栏视图切换按钮。"""
-        return self._view_controller.toggle_button
+    def view_mode(self) -> ViewMode:
+        """返回当前视图模式（分栏或终端）。"""
+        return self._view_controller.mode
 
     def set_view_mode(self, mode: ViewMode, *, persist: bool = True) -> None:
         """在分栏视图与终端视图之间切换。"""
@@ -171,6 +159,7 @@ class SessionTab(QWidget):
         sidebar_layout.setContentsMargins(8, 6, 8, 8)
         sidebar_layout.setSpacing(8)
         sidebar_layout.addWidget(self.connection_panel)
+        sidebar_layout.addWidget(self.receive_panel.settings_card)
         sidebar_layout.addWidget(self.log_panel)
         # 内容顶部对齐：多余高度留在滚动区背景，避免分组框内部出现大片空白。
         sidebar_layout.addStretch(1)
@@ -289,8 +278,6 @@ class SessionTab(QWidget):
         """恢复侧栏宽度、显示状态和接收/发送分隔比例。"""
         self._sidebar_visible = visible
         self._sidebar_width = min(max(width, _SIDEBAR_MIN_WIDTH), _SIDEBAR_MAX_WIDTH)
-        self.sidebar_toggle_button.setChecked(not visible)
-        self.sidebar_toggle_button.setText("展开设置" if not visible else "收起设置")
         self.sidebar.setVisible(visible)
         if content_splitter_state:
             state = QByteArray.fromBase64(content_splitter_state.encode("ascii"))
@@ -372,16 +359,22 @@ class SessionTab(QWidget):
     def _on_record(self, record: LogRecord) -> None:
         self.receive_panel.append_record(record)
 
-    def _toggle_sidebar(self, hidden: bool) -> None:
-        self._sidebar_visible = not hidden
-        self.sidebar.setVisible(not hidden)
-        self.sidebar_toggle_button.setText("展开设置" if hidden else "收起设置")
-        if hidden:
-            self.layout_splitter.setSizes([0, max(400, self.width())])
-        else:
+    @property
+    def sidebar_visible(self) -> bool:
+        """返回左侧设置面板是否显示。"""
+        return self._sidebar_visible
+
+    def set_sidebar_visible(self, visible: bool) -> None:
+        """显示或隐藏左侧设置面板，并广播状态供标签行顶部按钮同步。"""
+        self._sidebar_visible = visible
+        self.sidebar.setVisible(visible)
+        if visible:
             self.layout_splitter.setSizes(
                 [self._sidebar_width, max(400, self.width() - self._sidebar_width)]
             )
+        else:
+            self.layout_splitter.setSizes([0, max(400, self.width())])
+        self.sidebar_visibility_changed.emit(visible)
         self.preferences_changed.emit()
 
     def _splitter_moved(self) -> None:

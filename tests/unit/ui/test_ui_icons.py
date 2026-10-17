@@ -115,8 +115,7 @@ def test_periodic_button_icon_swaps_with_state(qtbot: object, monkeypatch: objec
 def test_view_toggle_icon_swaps_with_state(qtbot: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
-    tab = current_tab(window)
-    button = tab.view_toggle_button
+    button = window.view_toggle_button
     try:
         split_image = _button_image(button)
         assert split_image == _image(svg_icon("terminal"))
@@ -175,35 +174,22 @@ def test_send_button_icon_tracks_connection(qtbot: object, monkeypatch: object) 
 
 
 def test_tool_buttons_show_icon_beside_text(qtbot: object) -> None:
-    """侧栏、视图切换和发送设置必须显式声明“图标 + 文字”，避免退化为纯图标。"""
+    """顶部侧栏、视图切换和终端发送设置必须声明“图标 + 文字”，避免退化为纯图标。"""
     transport = FakeTransport()
     window = build_window(qtbot, transport)
     tab = current_tab(window)
     try:
         assert (
-            tab.sidebar_toggle_button.toolButtonStyle()
+            window.sidebar_toggle_button.toolButtonStyle()
             is Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
         assert (
-            tab.view_toggle_button.toolButtonStyle() is Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+            window.view_toggle_button.toolButtonStyle()
+            is Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
         assert (
             tab.send_settings_button.toolButtonStyle()
             is Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
-    finally:
-        window.close()
-
-
-def test_folded_action_copies_button_icon(qtbot: object) -> None:
-    """折叠进“⋯”菜单的动作应复制原按钮图标。"""
-    transport = FakeTransport()
-    window = build_window(qtbot, transport)
-    tab = current_tab(window)
-    panel = tab.receive_panel
-    try:
-        action = panel._header_overflow._build_action(panel.pause_button)
-        assert action.text() == "暂停"
-        assert _image(action.icon()) == _image(panel.pause_button.icon())
     finally:
         window.close()

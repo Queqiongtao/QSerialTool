@@ -26,7 +26,6 @@ class TerminalSendMenu(QToolButton):
         # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setToolTip("终端发送设置：格式、换行和历史")
-        self.setVisible(False)
 
         menu = QMenu(self)
         self._format_actions: dict[DisplayMode, QAction] = {}
