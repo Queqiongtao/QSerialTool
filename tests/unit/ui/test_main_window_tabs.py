@@ -1,5 +1,7 @@
 """测试主窗口的标签、头部、状态条与侧栏交互。"""
 
+from collections import Counter
+
 from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QContextMenuEvent, QMouseEvent
 from PySide6.QtWidgets import (
@@ -23,6 +25,8 @@ from tests.fixtures.ui_helpers import (
 
 from qserialtool.application import MAX_SESSION_TITLE_LENGTH
 from qserialtool.ui import MainWindow, data_colors
+from qserialtool.ui.empty_state import NEW_SESSION_HREF
+from qserialtool.ui.style_sheet import tokens
 
 
 def test_session_tab_places_settings_in_left_sidebar_and_toggles(qtbot: object) -> None:
@@ -383,6 +387,9 @@ def test_empty_state_guides_until_new_session_added(qtbot: object) -> None:
         assert window._header_tools.height() > 0
         assert label.y() == window.tab_bar.height()
         assert "Ctrl+T" in label.text()
+        assert NEW_SESSION_HREF in label.text()
+        assert not label.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        assert label.textInteractionFlags() & Qt.TextInteractionFlag.LinksAccessibleByMouse
 
         window.resize(1000, 700)
         qtbot.waitUntil(
@@ -392,5 +399,55 @@ def test_empty_state_guides_until_new_session_added(qtbot: object) -> None:
 
         window.new_session()
         assert not label.isVisible()
+    finally:
+        window.close()
+
+
+def test_empty_state_link_starts_session(qtbot: object) -> None:
+    """空态文案里的“新建会话”链接直接新建会话，未知链接被忽略。"""
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    label = window._empty_state
+
+    try:
+        window._close_tab(0)
+        assert window.tabs.count() == 0
+
+        label.linkActivated.emit("other-link")
+        assert window.tabs.count() == 0
+
+        label.linkActivated.emit(NEW_SESSION_HREF)
+        assert window.tabs.count() == 1
+        assert not label.isVisible()
+    finally:
+        window.close()
+
+
+def test_empty_state_link_follows_theme_switch(qtbot: object) -> None:
+    """链接颜色随主题切换重新解析，按当前主题的强调色渲染。"""
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    label = window._empty_state
+
+    def dominant_link_color() -> str:
+        image = label.grab().toImage()
+        counter: Counter = Counter()
+        for y in range(image.height()):
+            for x in range(image.width()):
+                rgb = image.pixel(x, y)
+                if ((rgb & 0xFF) - ((rgb >> 16) & 0xFF)) > 40:
+                    color = f"#{(rgb >> 16) & 0xFF:02x}{(rgb >> 8) & 0xFF:02x}{rgb & 0xFF:02x}"
+                    counter[color] += 1
+        assert counter, "未在空态文案里找到蓝调链接像素"
+        return counter.most_common(1)[0][0]
+
+    try:
+        window._close_tab(0)
+        label.resize(360, 160)
+
+        for theme in ("light", "dark"):
+            action = next(a for a in window.theme_actions if a.data() == theme)
+            action.setChecked(True)
+            assert dominant_link_color() == tokens(theme).accent.lower()
     finally:
         window.close()

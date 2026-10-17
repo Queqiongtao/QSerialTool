@@ -32,7 +32,7 @@ from qserialtool.domain import (
 )
 from qserialtool.ui.about_dialog import AboutDialog
 from qserialtool.ui.app_icon import app_icon
-from qserialtool.ui.empty_state import build_empty_state
+from qserialtool.ui.empty_state import NEW_SESSION_HREF, build_empty_state, refresh_empty_state
 from qserialtool.ui.help_window import HelpWindow
 from qserialtool.ui.icons import state_icon
 from qserialtool.ui.main_actions import (
@@ -100,6 +100,7 @@ class MainWindow(QMainWindow):
         self.tabs.tabCloseRequested.connect(self._close_tab)
         self.tabs.installEventFilter(self)
         self._empty_state = build_empty_state(self.tabs)
+        self._empty_state.linkActivated.connect(self._on_empty_state_link)
         self.setCentralWidget(self.tabs)
         self.setWindowTitle(f"QSerialTool {__version__}")
         self.setWindowIcon(app_icon())
@@ -328,6 +329,11 @@ class MainWindow(QMainWindow):
             if isinstance(widget, SessionTab):
                 self.tabs.setTabIcon(index, state_icon(widget.controller.state))
 
+    def _on_empty_state_link(self, href: str) -> None:
+        """空态引导里的“新建会话”链接：复用标签栏“+”与 Ctrl+T 的新建路径。"""
+        if href == NEW_SESSION_HREF:
+            self._new_session()
+
     def _sync_empty_state(self) -> None:
         """标签数量变化后切换空态引导的显隐并重新摆放。"""
         self._place_empty_state()
@@ -372,6 +378,8 @@ class MainWindow(QMainWindow):
         self._sync_window_chrome()
         refresh_session_tabs(self.tabs, self._data_font_size)
         self._refresh_tab_state_icons()
+        # 空态链接的颜色在富文本解析时固化，必须重建文案才会跟随新主题。
+        refresh_empty_state(self._empty_state)
         self._schedule_save()
 
     def _sync_window_chrome(self) -> None:
