@@ -272,7 +272,7 @@ UI 测试按主题拆分文件：`test_main_window_sessions.py`、`test_main_win
 
 `scripts/check_commit_message.py` 校验提交信息是否使用 Conventional Commits 类型前缀并包含简体中文标题与正文，合并与回滚自动提交会被跳过。该检查是启发式门禁，只验证中文字符存在，语义质量仍由人工审查保证。
 
-GitHub Actions 在 push 和 pull request 上以 Python 3.10–3.13 矩阵执行同一文档同步与提交信息检查、Ruff 和离屏 pytest。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
+GitHub Actions 在 push 和 pull request 上以 Python 3.10–3.13 矩阵执行同一文档同步与提交信息检查、Ruff 和离屏 pytest；测试前用 apt 安装 Qt 离屏运行所需的系统库（`libegl1`、`libgl1`、`libxkbcommon0`、`libdbus-1-3`、`libfontconfig1`、`libglib2.0-0`），并执行一次 PySide6 导入冒烟，避免 pytest-qt 在插件加载阶段因缺少原生库而内部错误退出。CI 用于防止 `--no-verify` 等本地绕过；本地 Hook 用于尽早反馈，但机器检查只能证明相关文档发生了变更，不能代替人工核对语义准确性。
 
 ## 11. 扩展清单
 
