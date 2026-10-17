@@ -22,6 +22,7 @@ from qserialtool.infrastructure import (
     TxtLogSink,
 )
 from qserialtool.ui.main_window import MainWindow
+from qserialtool.ui.window_chrome import keep_window_hidden
 
 
 def create_log_sink(log_format: LogFormat) -> LogSink:
@@ -69,5 +70,8 @@ def main() -> int:
     app.setApplicationName("QSerialTool")
     app.setApplicationVersion(__version__)
     window = build_main_window()
+    # 显示前最后兜底一次：把任何构造期间被系统提前显示的原生窗口重新隐藏，
+    # 保证第一个可见帧就是最终形态。
+    keep_window_hidden(window)
     window.show()
     return app.exec()

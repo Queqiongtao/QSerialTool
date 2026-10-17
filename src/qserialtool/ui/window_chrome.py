@@ -2,7 +2,7 @@
 
 Windows 下去掉系统标题栏（``WS_CAPTION``）但保留可缩放边框（``WS_THICKFRAME``），
 因此拖动、边缘缩放、Aero Snap、双击最大化/还原、右键系统菜单与 DWM 阴影都保持
-系统行为；本模块只做三处最小原生处理：
+系统行为；本模块只做四处最小原生处理：
 
 - ``WM_NCCALCSIZE``：最大化时把客户区固定为显示器工作区，避免露出边框缝隙或
   被任务栏遮挡（普通状态交给默认处理，客户区即窗口矩形去掉原生边框）。
@@ -11,6 +11,9 @@ Windows 下去掉系统标题栏（``WS_CAPTION``）但保留可缩放边框（`
 - DWM 窗口属性：声明 Win11 圆角并把窗口边框描边改为主题的窗口底色，消除系统
   默认描边在深色主题下呈浅色细线的观感；沉浸式深色属性以 ``apply_theme()`` 向
   Qt 声明的配色方案为主（平台插件负责维护），这里只直写一份作为兜底。
+- ``keep_window_hidden()``：构造期间对尚未显示的原生窗口执行 ``ShowWindow
+  (SW_HIDE)``，抵消部分启动路径下系统把主窗口按默认尺寸提前显示约一秒的
+  问题，第一个可见帧由应用自己的 ``show()`` 决定。
 
 原生钩子只在 Windows 桌面平台生效；离屏平台与其它系统回退系统标题栏，测试环境
 仍能看到窗口按钮控件树。
@@ -32,6 +35,9 @@ from qserialtool.ui.theme_manager import HEADER_BUTTON_SIZE_PX
 # 窗口按钮宽度与图标边长（像素）；高度与标签栏“+”“☰”一致。
 WINDOW_BUTTON_WIDTH_PX = 40
 _BUTTON_ICON_PX = 16
+
+# ShowWindow 的隐藏命令：构造期间用它在原生层强制保持窗口不可见。
+_SW_HIDE = 0
 
 _WINDOWS = sys.platform.startswith("win")
 
@@ -118,6 +124,8 @@ class _Api:
             ctypes.c_uint,
         )
         user32.IsZoomed.argtypes = (ctypes.c_void_p,)
+        user32.ShowWindow.argtypes = (ctypes.c_void_p, ctypes.c_int)
+        user32.ShowWindow.restype = ctypes.c_int
         user32.MonitorFromWindow.restype = ctypes.c_void_p
         user32.MonitorFromWindow.argtypes = (ctypes.c_void_p, ctypes.c_uint)
         user32.GetMonitorInfoW.argtypes = (ctypes.c_void_p, ctypes.POINTER(_MONITORINFO))
@@ -153,6 +161,23 @@ def uses_native_chrome() -> bool:
         return False
     app = QApplication.instance()
     return app is None or app.platformName() != "offscreen"
+
+
+def keep_window_hidden(window: QWidget) -> None:
+    """对尚未显示的原生窗口执行一次隐藏，保证构造期间窗口不可见。
+
+    实测部分 Windows 启动路径上，主窗口会在构造中途（去掉系统标题栏与恢复
+    几何之前）以默认尺寸加系统标题栏的状态被提前显示约一秒，随后才跳变到
+    保存状态，观感是“先小窗口、再放大”。在构造关键点与显示前调用本函数，
+    把第一个可见帧留给应用自己的 ``show()``；窗口已被应用显示后不再触碰，
+    离屏与非 Windows 平台直接返回，不产生任何句柄操作。
+    """
+    if not uses_native_chrome() or window.isVisible():
+        return
+    hwnd = int(window.winId())
+    if hwnd == 0:
+        return
+    _api().user32.ShowWindow(hwnd, _SW_HIDE)
 
 
 class WindowButtons(QWidget):

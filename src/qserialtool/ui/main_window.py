@@ -53,6 +53,7 @@ from qserialtool.ui.window_chrome import (
     enable_custom_title_bar,
     handle_native_event,
     is_windows,
+    keep_window_hidden,
     uses_native_chrome,
 )
 
@@ -105,12 +106,19 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"QSerialTool {__version__}")
         self.setWindowIcon(app_icon())
         self.resize(1180, 760)
+        # 默认几何一确定就原生隐藏：部分启动路径上窗口会在构造中途被提前显示，
+        # 保持隐藏直到应用主动 show()，避免闪现默认尺寸的小窗口（见 window_chrome）。
+        keep_window_hidden(self)
         self.setMinimumSize(900, 600)
         self.window_buttons: WindowButtons | None = None
         if is_windows():
             self.window_buttons = WindowButtons(self)
         if uses_native_chrome():
             enable_custom_title_bar(self)
+        # 去标题栏与恢复几何之前再压一次可见性：若提前显示发生在
+        # setMinimumSize/WindowButtons 期间，这里能立刻隐藏，避免连同
+        # 系统标题栏一起露出（见 window_chrome.keep_window_hidden）。
+        keep_window_hidden(self)
         self._build_actions()
         self._restore_or_create_sessions(initial_config)
         self._sync_empty_state()

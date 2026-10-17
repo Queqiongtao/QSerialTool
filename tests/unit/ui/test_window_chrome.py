@@ -6,10 +6,12 @@ import sys
 import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QWidget
-from tests.fixtures.fakes import FakeTransport
+from tests.fixtures.fakes import FakeClock, FakeTransport
 from tests.fixtures.ui_helpers import build_window
 
-from qserialtool.ui import window_chrome
+from qserialtool.application import SessionManager
+from qserialtool.domain import PortInfo
+from qserialtool.ui import MainWindow, window_chrome
 from qserialtool.ui.theme_manager import apply_theme
 from qserialtool.ui.window_chrome import (
     WINDOW_BUTTON_WIDTH_PX,
@@ -270,5 +272,51 @@ def test_apply_window_theme_skips_native_calls_on_non_windows(
     naked = QWidget()
     try:
         window_chrome.apply_window_theme(naked, is_dark=True)
+    finally:
+        naked.deleteLater()
+
+
+def test_keep_window_hidden_suppresses_early_native_visibility(qtbot: object) -> None:
+    """回归：构造期间被提前显示的原生窗口必须重新保持隐藏。
+
+    部分 Windows 启动路径上主窗口会在构造中途（默认尺寸、系统标题栏）提前
+    可见约一秒再跳变到保存状态，观感是“先小窗口、再放大”；keep_window_hidden
+    负责把第一个可见帧留给应用自己的 show()。
+    """
+    if not _WINDOWS or not uses_native_chrome():
+        pytest.skip("需要 Windows 桌面平台的真实窗口句柄")
+    transport = FakeTransport()
+    manager = SessionManager(transport_factory=lambda: transport, clock=FakeClock())
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+    )
+    qtbot.addWidget(window)
+    user32 = ctypes.windll.user32
+    try:
+        hwnd = ctypes.c_void_p(int(window.winId()))
+        user32.ShowWindow(hwnd, 5)  # SW_SHOW：模拟构造期间被系统提前显示
+        assert user32.IsWindowVisible(hwnd)
+
+        window_chrome.keep_window_hidden(window)
+        assert not user32.IsWindowVisible(hwnd)
+
+        window.show()
+        assert user32.IsWindowVisible(hwnd)
+        # 窗口已被应用显示后，本函数不得再触碰原生可见性。
+        window_chrome.keep_window_hidden(window)
+        assert user32.IsWindowVisible(hwnd)
+    finally:
+        window.close()
+
+
+def test_keep_window_hidden_skips_native_calls_on_non_windows(
+    monkeypatch: object, qtbot: object
+) -> None:
+    monkeypatch.setattr(window_chrome, "_WINDOWS", False)
+    # 未创建原生窗口的控件：非 Windows 平台不应触碰 winId()。
+    naked = QWidget()
+    try:
+        window_chrome.keep_window_hidden(naked)
     finally:
         naked.deleteLater()
