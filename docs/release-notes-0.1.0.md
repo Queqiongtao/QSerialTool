@@ -24,6 +24,6 @@
 
 - 尚未完成真实串口硬件验收。
 - 当前仅实际执行了 Windows 单文件构建；Linux 构建需在 Linux 环境验证。
-- 当前机器 Application Control 策略阻止直接运行本地生成的 `QSerialTool.exe`。
+- 干净 Windows 环境（未安装 Python）的单文件冷启动验收尚待完成。
 - 不包含文件发送、Modbus 解析、脚本、日志回放和协议插件。
 - 无代码签名、自动更新和遥测。
