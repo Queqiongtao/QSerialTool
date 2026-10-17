@@ -8,8 +8,9 @@ Windows 下去掉系统标题栏（``WS_CAPTION``）但保留可缩放边框（`
   被任务栏遮挡（普通状态交给默认处理，客户区即窗口矩形去掉原生边框）。
 - ``WM_NCHITTEST``：标签行空白处返回 ``HTCAPTION``，变成可拖动区域；标签本身、
   “+”新建按钮、滚动按钮及其他控件交回默认处理，点击仍然正常。
-- DWM 窗口属性：深色主题下启用沉浸式深色边框并声明 Win11 圆角，避免系统按
-  浅色绘制边框而露出白色窗缘。
+- DWM 窗口属性：声明 Win11 圆角并把窗口边框描边改为主题的窗口底色，消除系统
+  默认描边在深色主题下呈浅色细线的观感；沉浸式深色属性以 ``apply_theme()`` 向
+  Qt 声明的配色方案为主（平台插件负责维护），这里只直写一份作为兜底。
 
 原生钩子只在 Windows 桌面平台生效；离屏平台与其它系统回退系统标题栏，测试环境
 仍能看到窗口按钮控件树。
@@ -25,6 +26,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QSize
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QTabBar, QToolButton, QWidget
 
 from qserialtool.ui.icons import svg_icon
+from qserialtool.ui.style_sheet import tokens
 from qserialtool.ui.theme_manager import HEADER_BUTTON_SIZE_PX
 
 # 窗口按钮宽度与图标边长（像素）；高度与标签栏“+”“☰”一致。
@@ -46,11 +48,13 @@ _WM_NCHITTEST = 0x0084
 _HTCAPTION = 2
 _MONITOR_DEFAULTTONEAREST = 2
 
-# DWM 主题化窗口属性：深色沉浸式边框（Win10 1903 前后属性 id 不同）与 Win11 圆角。
+# DWM 主题化窗口属性：深色沉浸式边框（Win10 1903 前后属性 id 不同）、Win11 圆角
+# 与边框描边颜色（Win11 22000+；系统默认描边偏浅，深色主题下呈浅色细线）。
 _DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 _DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
 _DWMWA_WINDOW_CORNER_PREFERENCE = 33
 _DWMWCP_ROUND = 2
+_DWMWA_BORDER_COLOR = 34
 
 _GENERIC_MSG = b"windows_generic_MSG"
 
@@ -223,12 +227,15 @@ def enable_custom_title_bar(window: QWidget) -> None:
 
 
 def apply_window_theme(window: QWidget, *, is_dark: bool) -> None:
-    """按解析后的主题同步 DWM 边框观感：深色边框与 Win11 圆角。
+    """按解析后的主题同步 DWM 边框观感：深色边框、Win11 圆角与描边颜色。
 
-    保留 ``WS_THICKFRAME`` 后窗口边缘由 DWM 绘制，系统默认按浅色绘制，在深色
-    主题下会露出一圈白色窗缘；启用沉浸式深色属性后边框跟随主题。属性失败
-    （旧系统不支持该 id、离屏假窗口句柄或圆角偏好缺失）时静默降级，包括
-    ctypes 把失败 HRESULT 转成的 ``OSError``，不影响任何其它行为。
+    沉浸式深色属性主要由 Qt 平台插件按 ``apply_theme()`` 声明的配色方案维护，
+    这里直写一份作为兜底（含 Win10 1903 前的旧属性 id 回落），避免保留
+    ``WS_THICKFRAME`` 后系统按浅色绘制边框、深色主题下露出白色窗缘；窗口的
+    1 像素边框描边另有独立属性且系统默认偏浅（深色主题下顶部呈浅色细线），
+    改为跟随主题的窗口底色后与界面融为一体。属性失败（旧系统不支持该 id、
+    离屏假窗口句柄或圆角偏好缺失）时静默降级，包括 ctypes 把失败 HRESULT
+    转成的 ``OSError``，不影响任何其它行为。
     """
     if not _WINDOWS:
         return
@@ -241,8 +248,22 @@ def apply_window_theme(window: QWidget, *, is_dark: bool) -> None:
     if not _set_dwm_dword(api, hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE, value):
         # Win10 1903 之前的系统只认识旧的属性 id，任一成功即可。
         _set_dwm_dword(api, hwnd, _DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, value)
-    # 圆角偏好仅 Windows 11 支持，旧系统返回错误码时忽略。
+    # 圆角偏好与描边颜色仅 Windows 11 支持，旧系统返回错误码时忽略。
     _set_dwm_dword(api, hwnd, _DWMWA_WINDOW_CORNER_PREFERENCE, _DWMWCP_ROUND)
+    _set_dwm_dword(api, hwnd, _DWMWA_BORDER_COLOR, _border_colorref(is_dark))
+
+
+def _border_colorref(is_dark: bool) -> int:
+    """窗口边框描边的 COLORREF（``0x00BBGGRR``）：取主题的窗口底色。
+
+    描边与客户区底色一致后既不会在深色主题下露出浅色细线，也保留窗口轮廓；
+    浅色主题同样统一取窗口底色，两个主题观感一致。
+    """
+    window_color = tokens("dark" if is_dark else "light").window
+    red = int(window_color[1:3], 16)
+    green = int(window_color[3:5], 16)
+    blue = int(window_color[5:7], 16)
+    return red | green << 8 | blue << 16
 
 
 def _set_dwm_dword(api: _Api, hwnd: int, attribute: int, value: int) -> bool:

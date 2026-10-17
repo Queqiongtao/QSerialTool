@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -141,6 +142,25 @@ def test_apply_theme_installs_stylesheet(app: QApplication, theme_name: str) -> 
     apply_theme(app, theme_name)
     assert app.styleSheet()
     assert app.styleSheet() == build_stylesheet(theme_name)
+
+
+def test_apply_theme_declares_qt_color_scheme(
+    app: QApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """应用主题必须声明给 Qt 配色方案，平台插件据此维护原生窗口深色边框。
+
+    回归：不声明时 Qt 认为应用配色跟随系统，切换深色后平台插件会把 DWM
+    沉浸式深色属性按系统配色重置，窗口顶部残存浅色缩放边框；「跟随系统」
+    必须先重置为 Unknown 清除覆盖，再读取系统真实配色。
+    """
+    calls: list[object] = []
+    monkeypatch.setattr(app.styleHints(), "setColorScheme", calls.append)
+
+    apply_theme(app, "dark")
+    apply_theme(app, "light")
+    apply_theme(app, "system")
+
+    assert calls == [Qt.ColorScheme.Dark, Qt.ColorScheme.Light, Qt.ColorScheme.Unknown]
 
 
 def test_light_and_dark_stylesheets_differ(app: QApplication) -> None:

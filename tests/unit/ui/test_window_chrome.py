@@ -1,5 +1,6 @@
 """测试自定义标题行：窗口按钮行为、图标切换与拖动区域判定。"""
 
+import ctypes
 import sys
 
 import pytest
@@ -9,6 +10,7 @@ from tests.fixtures.fakes import FakeTransport
 from tests.fixtures.ui_helpers import build_window
 
 from qserialtool.ui import window_chrome
+from qserialtool.ui.theme_manager import apply_theme
 from qserialtool.ui.window_chrome import (
     WINDOW_BUTTON_WIDTH_PX,
     WindowButtons,
@@ -186,6 +188,77 @@ def test_apply_window_theme_tolerates_offscreen_and_real_handles(qtbot: object) 
         apply_window_theme(window, is_dark=False)
         apply_window_theme(window, is_dark=True)
     finally:
+        window.close()
+
+
+def test_apply_window_theme_sets_border_color_from_theme(monkeypatch: object) -> None:
+    """边框描边颜色必须跟随主题窗口底色，消除系统默认的浅色细线。"""
+    calls: list[tuple[int, int]] = []
+
+    class _FakeApi:
+        def dwm_set_window_attribute(
+            self, hwnd: int, attribute: int, pointer: object, size: int
+        ) -> int:
+            value = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_int))[0]
+            calls.append((attribute, value))
+            return 0
+
+    class _FakeWindow:
+        def winId(self) -> int:
+            return 4242
+
+    monkeypatch.setattr(window_chrome, "_WINDOWS", True)
+    monkeypatch.setattr(window_chrome, "_api", _FakeApi)
+
+    window_chrome.apply_window_theme(_FakeWindow(), is_dark=True)
+    window_chrome.apply_window_theme(_FakeWindow(), is_dark=False)
+
+    # 属性 20 沉浸式深色、33 圆角偏好、34 描边颜色（主题窗口底色的 COLORREF）。
+    assert calls == [
+        (20, 1),
+        (33, 2),
+        (34, 0x211D1B),  # 深色窗口底色 #1B1D21。
+        (20, 0),
+        (33, 2),
+        (34, 0xF6F4F3),  # 浅色窗口底色 #F3F4F6。
+    ]
+
+
+def _read_dwm_dword(window: QWidget, attribute: int) -> int | None:
+    """回读 DWM DWORD 属性；系统不支持回读该属性时返回 None。"""
+    value = ctypes.c_int(0)
+    result = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+        ctypes.c_void_p(int(window.winId())),
+        ctypes.c_uint(attribute),
+        ctypes.byref(value),
+        ctypes.sizeof(value),
+    )
+    return value.value if result == 0 else None
+
+
+def test_theme_switch_keeps_immersive_dark_attr_in_sync(qtbot: object) -> None:
+    """回归：切换主题后原生边框的沉浸式深色属性必须跟随应用主题。
+
+    此前缺陷：应用未向 Qt 声明配色方案，平台插件按系统配色（浅色）异步
+    重置该属性，深色主题下窗口顶部残存浅色缩放边框。
+    """
+    if not _WINDOWS or not uses_native_chrome():
+        pytest.skip("需要 Windows 桌面平台的真实窗口句柄")
+    app = QApplication.instance()
+    assert app is not None
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+
+    try:
+        if _read_dwm_dword(window, 20) is None:
+            pytest.skip("当前系统不支持回读沉浸式深色属性")
+
+        apply_theme(app, "dark")
+        qtbot.waitUntil(lambda: _read_dwm_dword(window, 20) == 1, timeout=2000)
+        apply_theme(app, "light")
+        qtbot.waitUntil(lambda: _read_dwm_dword(window, 20) == 0, timeout=2000)
+    finally:
+        apply_theme(app, "system")
         window.close()
 
 

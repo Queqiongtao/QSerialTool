@@ -226,9 +226,25 @@ def data_font(size: int = 0) -> QFont:
     return font
 
 
+def _declare_color_scheme(app: QApplication, theme: Theme) -> str:
+    """把应用主题声明给 Qt 并返回解析出的明确主题。
+
+    Windows 平台插件按 Qt 的有效配色方案维护原生窗口边框的沉浸式深色属性；
+    若只直写 DWM 属性而不声明配色方案，平台插件会在调色板变化时按系统配色
+    异步覆盖，深色主题顶部会残存浅色缩放边框。“跟随系统”必须先清除应用
+    覆盖（``Unknown``），否则读回的是上一次的覆盖值而不是系统真实配色。
+    """
+    hints = app.styleHints()
+    if theme == "system":
+        hints.setColorScheme(Qt.ColorScheme.Unknown)
+        return resolve_theme(theme)
+    hints.setColorScheme(Qt.ColorScheme.Dark if theme == "dark" else Qt.ColorScheme.Light)
+    return theme
+
+
 def apply_theme(app: QApplication, theme: Theme) -> None:
-    """为应用设置统一调色板与全局样式表。"""
-    resolved = resolve_theme(theme)
+    """为应用设置统一调色板、配色方案声明与全局样式表。"""
+    resolved = _declare_color_scheme(app, theme)
     _ThemeState.resolved = resolved
     app.setStyle("Fusion")
     colors = tokens(resolved)
