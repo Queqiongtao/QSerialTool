@@ -51,9 +51,10 @@ from qserialtool.ui.window_chrome import (
     WindowButtons,
     apply_window_theme,
     enable_custom_title_bar,
+    enable_linux_custom_title_bar,
     handle_native_event,
-    is_windows,
     keep_window_hidden,
+    uses_custom_title_bar,
     uses_native_chrome,
 )
 
@@ -111,10 +112,12 @@ class MainWindow(QMainWindow):
         keep_window_hidden(self)
         self.setMinimumSize(900, 600)
         self.window_buttons: WindowButtons | None = None
-        if is_windows():
+        if uses_custom_title_bar():
             self.window_buttons = WindowButtons(self)
         if uses_native_chrome():
             enable_custom_title_bar(self)
+        elif uses_custom_title_bar():
+            enable_linux_custom_title_bar(self)
         # 去标题栏与恢复几何之前再压一次可见性：若提前显示发生在
         # setMinimumSize/WindowButtons 期间，这里能立刻隐藏，避免连同
         # 系统标题栏一起露出（见 window_chrome.keep_window_hidden）。

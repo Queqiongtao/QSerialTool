@@ -185,13 +185,14 @@ ELF 可执行文件没有内嵌应用图标的标准，PyInstaller 在 Linux 也
 
 2026-10-18 在 Ubuntu 22.04.5 LTS（内核 6.8.0-138，glibc 2.35，Python 3.10.12，
 PySide6 6.11.2 按 `requirements.lock`）执行 `./scripts/build.sh`，文档同步、Ruff、
-pytest（499 passed, 16 skipped）、PyInstaller 单文件与 SHA-256 全部通过：
+pytest（507 passed, 16 skipped）、PyInstaller 单文件与 SHA-256 全部通过：
 
 - 文件：`dist/QSerialTool`
-- 大小：66488728 字节
-- SHA-256：`7e65e9b689bcc937a87156e999ab64e669684b2ee14132403e7a6e5465f911f4`
+- 大小：66493936 字节
+- SHA-256：`dc97ae490b3f7be09e04270bbea44d289620b7d913c553e80b2058a8619eec94`
 - 已用 `env -i` 空环境（无 `PATH`）与 `QT_QPA_PLATFORM=xcb` 完成冷启动、`xcb`
-  插件加载、配置/诊断日志创建和明暗主题截图核对；
+  插件加载、配置/诊断日志创建、明暗主题截图核对，并确认无边框单行标题行
+  （窗口未被 WM 加框、无 `_NET_FRAME_EXTENTS`，窗口按钮位于标签行右端）；
 - `scripts/install-desktop.sh` 安装的 `.desktop` 入口通过 `desktop-file-validate`，
   `gtk-launch qserialtool` 可正常启动且窗口 `WM_CLASS=QSerialTool` 与
   `StartupWMClass` 匹配；同机同时承担构建与验收，未在未安装 Python 的独立

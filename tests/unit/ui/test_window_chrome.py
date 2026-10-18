@@ -4,7 +4,8 @@ import ctypes
 import sys
 
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QContextMenuEvent
 from PySide6.QtWidgets import QApplication, QWidget
 from tests.fixtures.fakes import FakeClock, FakeTransport
 from tests.fixtures.ui_helpers import build_window
@@ -17,8 +18,11 @@ from qserialtool.ui.window_chrome import (
     WINDOW_BUTTON_WIDTH_PX,
     WindowButtons,
     apply_window_theme,
+    build_window_menu,
     handle_native_event,
     is_title_drag_point,
+    resize_edges_for,
+    uses_custom_title_bar,
     uses_native_chrome,
 )
 
@@ -28,7 +32,7 @@ _WINDOWS = sys.platform.startswith("win")
 def _buttons(window: object) -> WindowButtons:
     buttons = getattr(window, "window_buttons", None)
     if buttons is None:
-        pytest.skip("自定义标题栏仅在 Windows 上提供")
+        pytest.skip("窗口按钮仅在 Windows/Linux 桌面平台装配")
     return buttons
 
 
@@ -175,7 +179,7 @@ def test_native_event_hook_ignores_foreign_messages(qtbot: object) -> None:
 
 def test_native_chrome_follows_platform_policy(qapp: object) -> None:
     if not _WINDOWS:
-        pytest.skip("自定义标题栏仅在 Windows 上提供")
+        pytest.skip("窗口按钮仅在 Windows/Linux 桌面平台装配")
     assert uses_native_chrome() is (QApplication.platformName() != "offscreen")
 
 
@@ -320,3 +324,127 @@ def test_keep_window_hidden_skips_native_calls_on_non_windows(
         window_chrome.keep_window_hidden(naked)
     finally:
         naked.deleteLater()
+
+
+def test_resize_edges_for_detects_edges_corners_and_interior() -> None:
+    size = QSize(200, 120)
+    assert resize_edges_for(QPoint(3, 60), size) == Qt.Edge.LeftEdge
+    assert resize_edges_for(QPoint(197, 60), size) == Qt.Edge.RightEdge
+    assert resize_edges_for(QPoint(100, 2), size) == Qt.Edge.TopEdge
+    assert resize_edges_for(QPoint(100, 119), size) == Qt.Edge.BottomEdge
+    assert resize_edges_for(QPoint(0, 0), size) == (Qt.Edge.LeftEdge | Qt.Edge.TopEdge)
+    assert resize_edges_for(QPoint(50, 50), size) is None
+
+
+def test_resize_cursor_matches_corners_and_edges() -> None:
+    assert (
+        window_chrome._resize_cursor(Qt.Edge.LeftEdge | Qt.Edge.TopEdge)
+        is Qt.CursorShape.SizeFDiagCursor
+    )
+    assert (
+        window_chrome._resize_cursor(Qt.Edge.RightEdge | Qt.Edge.TopEdge)
+        is Qt.CursorShape.SizeBDiagCursor
+    )
+    assert window_chrome._resize_cursor(Qt.Edge.RightEdge) is Qt.CursorShape.SizeHorCursor
+    assert window_chrome._resize_cursor(Qt.Edge.BottomEdge) is Qt.CursorShape.SizeVerCursor
+
+
+def test_uses_custom_title_bar_platform_matrix(monkeypatch: object) -> None:
+    monkeypatch.setattr(window_chrome, "_WINDOWS", True)
+    monkeypatch.setattr(window_chrome, "_platform_name", lambda: "")
+    assert uses_custom_title_bar() is True
+    monkeypatch.setattr(window_chrome, "_platform_name", lambda: "offscreen")
+    assert uses_custom_title_bar() is False
+
+    monkeypatch.setattr(window_chrome, "_WINDOWS", False)
+    monkeypatch.setattr(window_chrome.sys, "platform", "linux")
+    monkeypatch.setattr(window_chrome, "_platform_name", lambda: "xcb")
+    assert uses_custom_title_bar() is True
+    monkeypatch.setattr(window_chrome, "_platform_name", lambda: "wayland")
+    assert uses_custom_title_bar() is True
+    monkeypatch.setattr(window_chrome, "_platform_name", lambda: "minimal")
+    assert uses_custom_title_bar() is False
+
+
+def test_show_window_menu_prefers_native_x11(qapp: QApplication, monkeypatch: object) -> None:
+    window = QWidget()
+    native_calls: list[tuple[QWidget, QPoint]] = []
+    fallback_calls: list[QWidget] = []
+    try:
+        monkeypatch.setattr(
+            window_chrome,
+            "_send_x11_window_menu",
+            lambda w, pos: native_calls.append((w, pos)) or True,
+        )
+        monkeypatch.setattr(window_chrome, "build_window_menu", fallback_calls.append)
+        pos = QPoint(10, 20)
+        window_chrome.show_window_menu(window, pos)
+        assert native_calls == [(window, pos)]
+        assert fallback_calls == []
+    finally:
+        window.deleteLater()
+
+
+def test_show_window_menu_falls_back_to_own_menu(qapp: QApplication, monkeypatch: object) -> None:
+    window = QWidget()
+    executed: list[QPoint] = []
+
+    class _FakeMenu:
+        def exec(self, pos: QPoint) -> None:
+            executed.append(pos)
+
+    try:
+        monkeypatch.setattr(window_chrome, "_send_x11_window_menu", lambda w, pos: False)
+        monkeypatch.setattr(window_chrome, "build_window_menu", lambda w: _FakeMenu())
+        pos = QPoint(3, 4)
+        window_chrome.show_window_menu(window, pos)
+        assert executed == [pos]
+    finally:
+        window.deleteLater()
+
+
+def test_build_window_menu_actions(qapp: QApplication, qtbot: object) -> None:
+    window = QWidget()
+    try:
+        menu = build_window_menu(window)
+        titles = [action.text() for action in menu.actions()]
+        assert titles[0] == "最小化"
+        assert titles[1] in {"最大化", "还原"}
+        assert titles[2] == "关闭"
+        menu.deleteLater()
+    finally:
+        window.deleteLater()
+
+
+def test_enable_linux_custom_title_bar_sets_flag_and_filters(qtbot: object) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    try:
+        window_chrome.enable_linux_custom_title_bar(window)
+        assert window.windowFlags() & Qt.WindowType.FramelessWindowHint
+        assert window.findChild(window_chrome._LinuxTitleBarFilter) is not None
+        assert window.findChild(window_chrome._LinuxResizeFilter) is not None
+    finally:
+        window.close()
+
+
+def test_linux_title_bar_filter_opens_menu_on_blank_context_click(
+    qtbot: object, monkeypatch: object
+) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    calls: list[tuple[QWidget, QPoint]] = []
+    try:
+        monkeypatch.setattr(
+            window_chrome, "show_window_menu", lambda w, pos: calls.append((w, pos))
+        )
+        window_chrome.enable_linux_custom_title_bar(window)
+        tab_bar = window.tabs.tabBar()
+        pos = QPoint(tab_bar.width() - 12, tab_bar.height() // 2)
+        assert tab_bar.tabAt(pos) < 0
+        global_pos = tab_bar.mapToGlobal(pos)
+        event = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, pos, global_pos)
+        QApplication.sendEvent(tab_bar, event)
+        assert calls == [(window, global_pos)]
+    finally:
+        window.close()
