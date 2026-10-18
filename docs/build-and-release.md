@@ -5,7 +5,8 @@
 - Windows 10/11 x64。
 - Ubuntu 22.04 x64 或兼容的 Linux x64 环境。
 - Python 3.10.x–3.13.x。
-- 已按 README 创建 `.venv` 并安装 `[dev,build]` 依赖。
+- 已在对应平台创建 `.venv` 并安装构建依赖（Linux 步骤见下文「Linux 构建」，
+  Windows 可先按 README 安装 `[dev,build]`）。
 
 Windows 和 Linux 必须在对应操作系统上分别构建，不能交叉生成单文件程序。
 
@@ -43,12 +44,52 @@ dist/QSerialTool.exe.sha256
 
 ## Linux 构建
 
-在 Ubuntu 22.04 或兼容环境运行：
+以下步骤在 Ubuntu 22.04 x64（或兼容的 Linux x64）执行；发布构建使用
+`requirements.lock` 固定依赖版本，保证与验收环境一致。
+
+### 1. 安装系统依赖
+
+构建机和目标机都需要 Qt 图形运行库。Ubuntu 22.04 默认没有 Qt 6.5 及以上
+`xcb` 平台插件所需的 `libxcb-cursor0`，缺少时单文件启动会报
+“Could not load the Qt platform plugin xcb”：
+
+```bash
+sudo apt-get install -y libxcb-cursor0
+```
+
+其余基础图形库及发行版差异见下文「运行依赖」。
+
+### 2. 创建虚拟环境并安装锁定依赖
+
+```bash
+cd QSerialTool
+python3.10 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel
+./.venv/bin/python -m pip install -r requirements.lock
+./.venv/bin/python -m pip install --no-deps -e .
+```
+
+`requirements.lock` 由 `pip-compile --all-extras` 生成，覆盖运行时与 `[dev,build]`
+依赖的精确版本；最后一步用 `--no-deps` 安装当前源码，避免替换已锁定版本。
+也可以只运行 `./.venv/bin/python -m pip install -e ".[dev,build]"`，但它会按
+`pyproject.toml` 的版本范围解析最新版本（例如 PySide6 6.12 会额外拉取
+WebEngine/PDF 组件），发布构建不推荐。
+
+### 3. 构建
 
 ```bash
 chmod +x scripts/build.sh
 ./scripts/build.sh
 ```
+
+脚本依次执行：
+
+1. 文档同步检查（当前工作区）。
+2. Ruff 格式检查。
+3. Ruff 静态检查。
+4. `QT_QPA_PLATFORM=offscreen pytest` 全部测试。
+5. PyInstaller 单文件构建（`packaging/qserialtool.spec`）。
+6. 生成 SHA-256 校验文件。
 
 产物：
 
@@ -56,6 +97,16 @@ chmod +x scripts/build.sh
 dist/QSerialTool
 dist/QSerialTool.sha256
 ```
+
+校验：
+
+```bash
+cd dist
+sha256sum -c QSerialTool.sha256
+```
+
+重新构建前请先退出正在运行的单文件进程，否则 PyInstaller 覆盖 `dist/QSerialTool`
+时会因文件被占用失败。Linux 单文件只能在 Linux 构建，不能由 Windows 交叉生成。
 
 ## 文档同步与 CI
 

@@ -39,8 +39,15 @@ python -m venv .venv
 ```bash
 python3.10 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip setuptools wheel
-./.venv/bin/python -m pip install -e ".[dev,build]"
+./.venv/bin/python -m pip install -r requirements.lock
+./.venv/bin/python -m pip install --no-deps -e .
 ```
+
+`requirements.lock` 是可复现的精确版本集合；也可以改用
+`./.venv/bin/python -m pip install -e ".[dev,build]"`（按 `pyproject.toml`
+版本范围解析）。构建或运行单文件前，Ubuntu 22.04 还需安装
+`libxcb-cursor0` 等图形库；完整的系统依赖、构建与校验步骤见
+`docs/build-and-release.md`。
 
 ## 生成依赖锁文件
 
