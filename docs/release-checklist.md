@@ -65,9 +65,9 @@
 Python 3.10.12，PySide6 6.11.2 按 `requirements.lock`）执行，同机同时承担构建与
 验收；本机已装 Python，因此干净环境以 `env -i` 空环境近似。
 
-- **构建**：`./scripts/build.sh` 依次通过文档同步、Ruff、pytest（498 passed,
-  16 skipped）、PyInstaller 单文件与 SHA-256 生成；产物大小 66,491,128 字节，
-  SHA-256 `f284f69c1501971075e06fac1d67f8a049bae797d7d4598d597799695a906210`，
+- **构建**：`./scripts/build.sh` 依次通过文档同步、Ruff、pytest（499 passed,
+  16 skipped）、PyInstaller 单文件与 SHA-256 生成；产物大小 66,488,728 字节，
+  SHA-256 `7e65e9b689bcc937a87156e999ab64e669684b2ee14132403e7a6e5465f911f4`，
   详见 `docs/build-and-release.md`。
 - **冷启动**：`env -i HOME=… DISPLAY=:0 XDG_RUNTIME_DIR=… LANG=zh_CN.UTF-8
   QT_QPA_PLATFORM=xcb ./dist/QSerialTool` 在无 `PATH`、无系统 Python 依赖的环境下
@@ -82,6 +82,10 @@ Python 3.10.12，PySide6 6.11.2 按 `requirements.lock`）执行，同机同时�
 - **窗口图标**：图标资源 `qserialtool.png`（256×256）与窗口图标对象加载正常；
   Xwayland 下 `_NET_WM_ICON` 为空（最小 Qt 程序同样复现），属环境限制，未能在
   任务栏截图核对。
+- **桌面入口**：`scripts/install-desktop.sh` 安装到 `~/.local/share` 后，
+  `desktop-file-validate` 通过，`gtk-launch qserialtool` 正常启动，窗口
+  `WM_CLASS=QSerialTool` 与 `StartupWMClass` 匹配；`--uninstall` 可清理；
+  裸 `dist/QSerialTool` 在文件管理器中仍显示通用图标（Linux 机制，见已知限制）。
 - **串口验收（虚拟串口降级）**：本机无 USB 转串口硬件，使用两个 PTY 双向桥接
   模拟交叉接线，对端脚本回显/发送；验收进程内对 pyserial 仅做两项测试限定补丁：
   忽略 PTY 不支持的 DTR/RTS modem ioctl、模拟独占打开以复现端口占用。运行
@@ -99,7 +103,8 @@ Python 3.10.12，PySide6 6.11.2 按 `requirements.lock`）执行，同机同时�
   不适用，按封顶后平台期人工判定 PASS。
 - **已知限制**：未使用真实 USB 转串口硬件，运行中拔插、真实驱动差异等
   实施计划 §17.5 必测场景未覆盖；Xwayland 不暴露 `_NET_WM_ICON`；验收机已装
-  Python，未做独立纯净系统冷启动。
+  Python，未做独立纯净系统冷启动；Linux 裸 ELF 无法内嵌文件图标，桌面图标
+  需安装 `.desktop` 入口，不提供 AppImage/Flatpak。
 
 ## 发布产物
 

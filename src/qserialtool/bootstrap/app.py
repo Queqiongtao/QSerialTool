@@ -24,12 +24,19 @@ from qserialtool.infrastructure import (
 from qserialtool.ui.main_window import MainWindow
 from qserialtool.ui.window_chrome import keep_window_hidden
 
+DESKTOP_FILE_NAME = "qserialtool"
+
 
 def create_log_sink(log_format: LogFormat) -> LogSink:
     """按用户选择创建 CSV 或 TXT 日志输出。"""
     if log_format == "csv":
         return CsvLogSink()
     return TxtLogSink()
+
+
+def configure_desktop_entry(app: QApplication) -> None:
+    """声明桌面文件标识，便于 Linux 桌面环境关联 .desktop 图标。"""
+    app.setDesktopFileName(DESKTOP_FILE_NAME)
 
 
 def build_main_window(
@@ -69,6 +76,7 @@ def main() -> int:
         app = QApplication(sys.argv)
     app.setApplicationName("QSerialTool")
     app.setApplicationVersion(__version__)
+    configure_desktop_entry(app)
     window = build_main_window()
     # 显示前最后兜底一次：把任何构造期间被系统提前显示的原生窗口重新隐藏，
     # 保证第一个可见帧就是最终形态。

@@ -201,6 +201,10 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - `install_qt_message_handler()` 把 Qt 内部消息按级别转发到 `qserialtool.qt` 记录器。
 - 串口打开失败、I/O 错误、自动日志写入失败、配置保存失败和端口枚举异常会分别写入 `WARNING` 或 `DEBUG` 级记录，便于事后排查。
 - 诊断日志与用户可配置的“自动日志”相互独立：前者记录应用自身事件，后者逐条保存串口数据。
+- `bootstrap/app.py` 的 `configure_desktop_entry()` 在创建 `QApplication` 后声明
+  `setDesktopFileName("qserialtool")`，供 Linux 桌面环境把运行中的窗口关联到
+  `scripts/install-desktop.sh` 安装的 `.desktop` 入口（见 `docs/build-and-release.md`
+  的「Linux 桌面图标」）；其他平台该调用无副作用。
 
 ## 8. UI 层职责
 

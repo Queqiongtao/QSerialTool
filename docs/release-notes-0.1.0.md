@@ -29,5 +29,7 @@
   USB 转串口硬件，运行中拔插等真实硬件场景待后续补充。
 - Windows 单文件已在未安装 Python 的干净测试机验收；Linux 单文件在构建机以
   `env -i` 空环境近似验证，未在独立纯净系统复验。
+- Linux 裸单文件不显示文件图标（ELF 机制），应用菜单与坞站图标需先执行
+  `scripts/install-desktop.sh` 安装 `.desktop` 入口；不提供 AppImage/Flatpak。
 - 不包含文件发送、Modbus 解析、脚本、日志回放和协议插件。
 - 无代码签名、自动更新和遥测。
