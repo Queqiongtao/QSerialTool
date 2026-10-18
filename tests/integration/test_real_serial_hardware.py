@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 import pytest
 import serial
@@ -32,6 +33,15 @@ pytestmark = pytest.mark.hardware
 
 _TEXT = "QSerialTool 回环测试 ABC 123"
 _GB18030_TEXT = "串口工具硬件验收：中文编码 GB18030。"
+
+
+@pytest.fixture(autouse=True)
+def _silence_dialogs(monkeypatch: object) -> None:
+    """静音模态对话框：无人值守跑压力/稳定性时避免事件循环被弹窗阻塞。"""
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes
+    )
 
 
 def _hardware_ports() -> tuple[str, str]:
@@ -289,5 +299,140 @@ def test_busy_port_reports_error_and_keeps_config(
         assert warnings
     finally:
         holder.close()
+        tab.controller.close(force=True)
+        window.close()
+
+
+class _StressPeer:
+    """持续发送压力流并回显应用数据的对端驱动。"""
+
+    def __init__(self, port: str, baud: int, interval_ms: float) -> None:
+        # timeout=0：读操作立即返回，避免回显读把发送节奏拖慢到读超时级别。
+        self._serial = serial.Serial(port, baud, timeout=0, write_timeout=5)
+        self._interval = interval_ms / 1000
+        self._stop = threading.Event()
+        self.received = 0
+        self.sent = 0
+        self.errors: list[str] = []
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def __enter__(self) -> _StressPeer:
+        self._serial.reset_input_buffer()
+        self._thread.start()
+        return self
+
+    def _run(self) -> None:
+        index = 0
+        last_send = time.monotonic()
+        try:
+            while not self._stop.is_set():
+                chunk = self._serial.read(8192)
+                if chunk:
+                    self.received += len(chunk)
+                    self._serial.write(chunk)
+                    self._serial.flush()
+                now = time.monotonic()
+                if now - last_send >= self._interval:
+                    index += 1
+                    payload = f"[{index:06d}] stress payload {'x' * 32}\r\n".encode("ascii")
+                    self._serial.write(payload)
+                    self._serial.flush()
+                    self.sent += len(payload)
+                    last_send = now
+                else:
+                    time.sleep(0.0005)
+        except Exception as exc:
+            self.errors.append(str(exc))
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)
+        self._serial.close()
+
+
+def test_duplex_stress(qtbot: object) -> None:
+    """全双工压力：对端持续流 + 应用周期发送，期间做 UI 操作冒烟。
+
+    压力时长由 ``QSERIALTOOL_HW_STRESS_SECONDS`` 控制（默认 60 秒）。
+    重载下周期发送可能因有界写队列已满而自动停止（设计如此），测试接受
+    两种状态，只要求停止后发送计数不再增长。
+    """
+    app_port, peer_port = _hardware_ports()
+    duration = float(os.environ.get("QSERIALTOOL_HW_STRESS_SECONDS", "60"))
+    window = _build_window(qtbot)
+    tab = current_tab(window)
+    try:
+        _connect(qtbot, tab, app_port, baud=921600)
+        with _StressPeer(peer_port, 921600, interval_ms=2) as peer:
+            tab.send_panel.editor.setPlainText("stress-ping")
+            tab.send_panel.interval_spin.setValue(10)
+            qtbot.mouseClick(tab.send_panel.periodic_button, Qt.MouseButton.LeftButton)
+            assert tab.send_panel.periodic_button.isChecked()
+
+            deadline = time.monotonic() + duration
+            while time.monotonic() < deadline:
+                qtbot.wait(200)
+                assert tab.controller.state is SessionState.CONNECTED
+                assert tab.controller.snapshot.last_error is None
+
+            qtbot.mouseClick(tab.receive_panel.pause_button, Qt.MouseButton.LeftButton)
+            assert tab.receive_panel.pause_button.text() == "继续"
+            qtbot.mouseClick(tab.receive_panel.pause_button, Qt.MouseButton.LeftButton)
+            assert tab.receive_panel.pause_button.text() == "暂停"
+            tab.set_view_mode("terminal", persist=False)
+            tab.set_view_mode("split", persist=False)
+            qtbot.mouseClick(tab.receive_panel.clear_button, Qt.MouseButton.LeftButton)
+            qtbot.wait(200)
+            assert tab.controller.state is SessionState.CONNECTED
+
+            if tab.send_panel.periodic_button.isChecked():
+                qtbot.mouseClick(tab.send_panel.periodic_button, Qt.MouseButton.LeftButton)
+            assert not tab.send_panel.periodic_button.isChecked()
+            # 写队列中可能仍有已排队的周期任务在陆续发出，先等排空再确认计数不再增长。
+            qtbot.wait(3000)
+            stopped_at = peer.received
+            qtbot.wait(1000)
+            assert peer.received == stopped_at
+            assert not peer.errors
+            assert peer.sent > 0
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_binary_burst_integrity(qtbot: object) -> None:
+    """对端突发发送 1 MiB 二进制数据，累计接收字节必须完全一致。
+
+    接收路径对有意的跨块多字节字符尾巴会暂存到断开时补记，因此先核对
+    ``rx_bytes`` 累计值，再断开并验证尾字节已补进内存缓冲。
+    """
+    app_port, peer_port = _hardware_ports()
+    total = 1024 * 1024
+    window = _build_window(qtbot)
+    tab = current_tab(window)
+    peer = serial.Serial(peer_port, 921600, timeout=0.1, write_timeout=10)
+    try:
+        _connect(qtbot, tab, app_port, baud=921600)
+        baseline = tab.controller.snapshot.rx_bytes
+        block = bytes(range(256)) * 16
+        sent = 0
+        while sent < total:
+            chunk = block[: min(len(block), total - sent)]
+            written = peer.write(chunk)
+            sent += written
+        peer.flush()
+        qtbot.waitUntil(
+            lambda: tab.controller.snapshot.rx_bytes - baseline >= total, timeout=180000
+        )
+        assert tab.controller.snapshot.rx_bytes - baseline == total
+        assert tab.controller.state is SessionState.CONNECTED
+
+        _disconnect(qtbot, tab)
+        buffered = sum(
+            len(record.raw) for record in tab.controller.records if record.direction == "rx"
+        )
+        assert buffered == total
+    finally:
+        peer.close()
         tab.controller.close(force=True)
         window.close()

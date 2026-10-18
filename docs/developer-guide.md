@@ -270,7 +270,7 @@ UI 测试按主题拆分文件：`test_main_window_sessions.py`、`test_main_win
 
 `scripts/build.ps1` 与 CI 以 `QT_QPA_PLATFORM=offscreen` 运行 pytest：该平台只有泛型字体、文字度量与真实系统字体不同，界面宽度类断言必须按 `sizeHint()` 或实际可用宽度相对判断，不得依赖固定像素预算或默认 1180px 窗口宽度。
 
-真实串口硬件验收：`tests/integration/test_real_serial_hardware.py` 以 `pytest.mark.hardware` 标记，默认跳过；两个交叉接线（TX↔RX、共地）的 USB 转串口模块就绪后，设置 `QSERIALTOOL_HW_PORTS=应用端口,对端端口` 并以 `-m hardware` 运行，覆盖文本/HEX 字节一致、GB18030 中文、波特率矩阵、高频接收与暂停、周期发送停止和端口占用错误。`scripts/serial_peer.py` 提供对端回显、注入与期望字节校验（`--mode verify`），`scripts/monitor_serialtool.py` 定时采样 QSerialTool 进程的私有内存、工作集、句柄数与自动日志大小，供长时间稳定性验收使用；运行中拔插与两小时稳定性按 `docs/release-checklist.md` 人工执行并记录在“硬件验收记录”。
+真实串口硬件验收：`tests/integration/test_real_serial_hardware.py` 以 `pytest.mark.hardware` 标记，默认跳过；两个交叉接线（TX↔RX、共地）的 USB 转串口模块就绪后，设置 `QSERIALTOOL_HW_PORTS=应用端口,对端端口` 并以 `-m hardware` 运行，覆盖文本/HEX 字节一致、GB18030 中文、波特率矩阵、高频接收与暂停、周期发送停止、端口占用错误，以及 921600 全双工压力（时长由 `QSERIALTOOL_HW_STRESS_SECONDS` 控制）和 1 MiB 二进制突发完整性。`scripts/serial_peer.py` 提供对端回显、注入与期望字节校验（`--mode verify`），`scripts/monitor_serialtool.py` 定时采样 QSerialTool 进程的私有内存、工作集、句柄数与日志增长（`--pid` 直接指定进程，同名多进程时自动取私有内存最大的一个；`--log-file` 支持单个文件或目录累计），供长时间稳定性验收使用；运行中拔插按需人工执行，两小时稳定性结果记录在 `docs/release-checklist.md` 的“硬件验收记录”。
 
 `scripts/check_commit_message.py` 校验提交信息是否使用 Conventional Commits 类型前缀并包含简体中文标题与正文，合并与回滚自动提交会被跳过。该检查是启发式门禁，只验证中文字符存在，语义质量仍由人工审查保证。
 
