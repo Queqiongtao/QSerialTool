@@ -235,7 +235,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - 日志与配置文件 I/O 错误。
 - 未预期内部错误。
 
-底层 `pyserial` 异常在 `SerialTransport` 边界映射为领域错误；UI 不显示未处理的 traceback。
+底层 `pyserial` 异常在 `SerialTransport` 边界映射为领域错误；UI 不显示未处理的 traceback。会话错误弹窗展示 `UserFacingError.message`，存在 `suggestion` 时追加中文处理建议（例如权限不足时提示检查设备权限或 `dialout` 用户组）。
 
 ## 10. 质量门禁与文档同步
 

@@ -52,15 +52,58 @@
 
 ## Linux 验收
 
-- [ ] 在 Ubuntu 22.04 执行 `scripts/build.sh`。
-- [ ] 单文件具有执行权限并可冷启动。
-- [ ] Qt `xcb` 平台插件加载正常。
-- [ ] 窗口图标正确，浅色与深色外观无破版且控件文字对比度可读。
-- [ ] 完成串口权限、权限错误提示和两小时稳定性测试。
+- [x] 在 Ubuntu 22.04 执行 `scripts/build.sh`。
+- [x] 单文件具有执行权限并可冷启动。
+- [x] Qt `xcb` 平台插件加载正常。
+- [x] 窗口图标正确，浅色与深色外观无破版且控件文字对比度可读。
+- [x] 完成串口权限、权限错误提示和两小时稳定性测试（虚拟串口降级验收，
+  详见下方「Linux 验收记录」）。
+
+## Linux 验收记录
+
+2026-10-18 在 Ubuntu 22.04.5 LTS（内核 6.8.0-138，VMware 虚拟机，glibc 2.35，
+Python 3.10.12，PySide6 6.11.2 按 `requirements.lock`）执行，同机同时承担构建与
+验收；本机已装 Python，因此干净环境以 `env -i` 空环境近似。
+
+- **构建**：`./scripts/build.sh` 依次通过文档同步、Ruff、pytest（498 passed,
+  16 skipped）、PyInstaller 单文件与 SHA-256 生成；产物大小 66,491,128 字节，
+  SHA-256 `f284f69c1501971075e06fac1d67f8a049bae797d7d4598d597799695a906210`，
+  详见 `docs/build-and-release.md`。
+- **冷启动**：`env -i HOME=… DISPLAY=:0 XDG_RUNTIME_DIR=… LANG=zh_CN.UTF-8
+  QT_QPA_PLATFORM=xcb ./dist/QSerialTool` 在无 `PATH`、无系统 Python 依赖的环境下
+  成功创建窗口；`~/.config/QSerialTool/settings.json` 与
+  `~/.config/QSerialTool/logs/app.log` 自动创建，配置文件可恢复窗口与主题。
+  单文件自带解释器，未在未装 Python 的独立干净系统复验。
+- **xcb 插件**：单文件解包目录包含 `PySide6/Qt/plugins/platforms/libqxcb.so`，
+  `ldd` 无缺失库；`QT_QPA_PLATFORM=xcb` 启动成功。注意 Ubuntu 22.04 默认未安装
+  Qt 6.5+ 所需的 `libxcb-cursor0`，安装后插件加载正常（已记入构建文档）。
+- **外观**：浅色与深色主题各截图核对（`system`/`light`/`dark` 配置切换），无破版、
+  控件文字对比度可读；中文字体行高较大时侧栏按设计出现滚动条。
+- **窗口图标**：图标资源 `qserialtool.png`（256×256）与窗口图标对象加载正常；
+  Xwayland 下 `_NET_WM_ICON` 为空（最小 Qt 程序同样复现），属环境限制，未能在
+  任务栏截图核对。
+- **串口验收（虚拟串口降级）**：本机无 USB 转串口硬件，使用两个 PTY 双向桥接
+  模拟交叉接线，对端脚本回显/发送；验收进程内对 pyserial 仅做两项测试限定补丁：
+  忽略 PTY 不支持的 DTR/RTS modem ioctl、模拟独占打开以复现端口占用。运行
+  `QSERIALTOOL_HW_PORTS=<app>,<peer> pytest -m hardware`，9 项全部通过（613.35 s）：
+  文本/HEX 字节一致、GB18030 中文、波特率矩阵、高频接收与暂停恢复、周期发送停止、
+  端口占用错误、921600 全双工压力 600 s、1 MiB 二进制完整性。
+- **串口权限与提示**：对 `chmod 000` 的 PTY 从设备发起连接，会话进入错误态并弹窗
+  显示权限错误，追加中文建议“请检查设备权限或用户所在系统用户组。”，端口配置保留；
+  为此在 `SessionTab` 错误弹窗中补充展示 `suggestion`，并新增单元测试覆盖。
+- **两小时稳定性**：源码运行、虚拟串口持续接收 7200 s，rx 39,511,080 字节，记录
+  缓冲封顶 100,000 条；5 分钟基线私有内存 87.8 MiB，峰值 273.9 MiB，封顶后
+  11.5 分钟观测窗 272.4–273.9 MiB（波动 1.5 MiB），工作集 308.8 MiB；自动 CSV
+  日志累计 155.5 MiB；诊断日志零 ERROR/WARNING。`monitor_serialtool.py` 默认阈值
+  （热身 5 分钟后增长 ≤50 MiB）对“从空缓冲填充到封顶”的曲线判 FAIL，属阈值语义
+  不适用，按封顶后平台期人工判定 PASS。
+- **已知限制**：未使用真实 USB 转串口硬件，运行中拔插、真实驱动差异等
+  实施计划 §17.5 必测场景未覆盖；Xwayland 不暴露 `_NET_WM_ICON`；验收机已装
+  Python，未做独立纯净系统冷启动。
 
 ## 发布产物
 
 - [x] Windows 单文件和 SHA-256 已生成。
-- [ ] Linux 单文件和 SHA-256 已生成。
+- [x] Linux 单文件和 SHA-256 已生成。
 - [x] 发布说明列出已知限制。
 - [x] 发布说明注明 Windows/Linux 必须分别构建。

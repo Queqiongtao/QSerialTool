@@ -1,5 +1,7 @@
 """测试主窗口的会话生命周期、连接收发与标签关闭。"""
 
+from dataclasses import replace
+
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -12,7 +14,12 @@ from tests.fixtures.ui_helpers import (
     disconnect_session,
 )
 
-from qserialtool.domain import DEFAULT_LINE_ENDING, SessionState
+from qserialtool.domain import (
+    DEFAULT_LINE_ENDING,
+    ErrorCode,
+    SessionState,
+    UserFacingError,
+)
 from qserialtool.ui.theme_manager import data_colors
 
 
@@ -85,6 +92,30 @@ def test_main_window_validates_invalid_baud_and_hex(qtbot: object, monkeypatch: 
     assert warnings[-1] == "HEX 数据包含非法字符：'Z'。"
 
     disconnect_session(qtbot, tab)
+    window.close()
+
+
+def test_session_error_dialog_includes_suggestion(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = FakeTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+    messages: list[str] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args, **kwargs: messages.append(str(args[2])),
+    )
+    error = UserFacingError(
+        ErrorCode.PORT_PERMISSION_DENIED,
+        "当前用户没有访问串口的权限。",
+        True,
+        "请检查设备权限或用户所在系统用户组。",
+    )
+    tab._on_snapshot(replace(tab.controller.snapshot, last_error=error))
+    assert messages == ["当前用户没有访问串口的权限。\n\n请检查设备权限或用户所在系统用户组。"]
     window.close()
 
 

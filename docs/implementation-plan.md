@@ -99,7 +99,7 @@ V1 包含：
 - M0-M5 已实现，当前软件版本为 `0.1.0`。
 - 当前实现开发指南见 `docs/developer-guide.md`，用户操作见 `docs/user-guide.md`。
 - GitHub Actions 已承担文档同步、Ruff 和 pytest 快速质量门禁；单文件构建仍在对应操作系统本地执行。
-- Windows/Linux 真实串口、单文件冷启动和长时间稳定性验收仍按发布清单执行。
+- Windows 已完成真实串口与稳定性验收；Linux 已完成 Ubuntu 22.04 单文件构建、冷启动、主题与虚拟串口验收，真实 USB 串口硬件场景待补充，详见 `docs/release-checklist.md`。
 - `AGENT.md` 已修订至 v1.5：重组语言、提交与文档同步规范，修正目录树并如实标注 `tests/ui/` 空目录，加入工程组织一致性与文件规模棘轮规则。
 
 ## 3. 工程原则

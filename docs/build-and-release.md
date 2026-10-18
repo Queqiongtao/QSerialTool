@@ -71,6 +71,17 @@ git config core.hooksPath .githooks
 
 Windows 单文件目标机器无需安装 Python。Linux 单文件仍依赖常见图形和系统运行库；若启动时报 Qt 平台插件错误，请根据发行版安装 XCB 相关系统库。
 
+Ubuntu 22.04 默认没有 Qt 6.5 及以上 `xcb` 平台插件所需的 `libxcb-cursor0`，
+未安装时会报“Could not load the Qt platform plugin xcb”。执行以下命令补齐：
+
+```bash
+sudo apt-get install -y libxcb-cursor0
+```
+
+其他发行版还需确保 `libxcb-xinerama0`、`libxkbcommon-x11-0`、`libegl1`、`libgl1`、
+`libdbus-1-3`、`libfontconfig1`、`libglib2.0-0` 等基础图形库存在（CI 工作流
+`.github/workflows/quality.yml` 列出了参考列表）。
+
 ## 单文件行为
 
 - 首次启动会解压到系统临时目录，启动速度慢于普通源码运行。
@@ -95,3 +106,16 @@ Windows 单文件目标机器无需安装 Python。Linux 单文件仍依赖常�
 - 大小：44971847 字节
 - SHA-256：`1e7e8a09d7148c9fb220a9760fc81639dbd6aca876da7fbc3684a0133247ee9b`
 - 本机已能直接启动该产物（单文件解包、Qt 插件、窗口渲染与配置读写正常）；并已在未安装 Python 的干净 Windows 环境完成单文件冷启动验收（2026-10-17）。
+
+## 当前 Linux 构建记录
+
+2026-10-18 在 Ubuntu 22.04.5 LTS（内核 6.8.0-138，glibc 2.35，Python 3.10.12，
+PySide6 6.11.2 按 `requirements.lock`）执行 `./scripts/build.sh`，文档同步、Ruff、
+pytest（498 passed, 16 skipped）、PyInstaller 单文件与 SHA-256 全部通过：
+
+- 文件：`dist/QSerialTool`
+- 大小：66491128 字节
+- SHA-256：`f284f69c1501971075e06fac1d67f8a049bae797d7d4598d597799695a906210`
+- 已用 `env -i` 空环境（无 `PATH`）与 `QT_QPA_PLATFORM=xcb` 完成冷启动、`xcb`
+  插件加载、配置/诊断日志创建和明暗主题截图核对；同机同时承担构建与验收，
+  未在未安装 Python 的独立干净系统复验。

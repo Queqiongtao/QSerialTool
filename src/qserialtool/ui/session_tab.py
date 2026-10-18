@@ -353,7 +353,11 @@ class SessionTab(QWidget):
             error_key = (snapshot.last_error.code, snapshot.last_error.diagnostic_id)
             if error_key != self._last_error_key:
                 self._last_error_key = error_key
-                QMessageBox.warning(self, "串口错误", snapshot.last_error.message)
+                error = snapshot.last_error
+                detail = error.message
+                if error.suggestion:
+                    detail = f"{detail}\n\n{error.suggestion}"
+                QMessageBox.warning(self, "串口错误", detail)
 
     @Slot(object)
     def _on_record(self, record: LogRecord) -> None:

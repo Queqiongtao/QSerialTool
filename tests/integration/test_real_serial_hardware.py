@@ -295,8 +295,10 @@ def test_busy_port_reports_error_and_keeps_config(
         tab.connection_panel.port_combo.setEditText(app_port)
         qtbot.mouseClick(tab.connection_panel.connect_button, Qt.MouseButton.LeftButton)
         qtbot.waitUntil(lambda: tab.controller.state is SessionState.ERROR, timeout=5000)
+        # 状态切换由控制器先完成，错误快照经 queued signal 到达界面后才弹窗；
+        # 在高频/快速失败路径上两步之间存在竞态，这里等待错误提示实际发生。
+        qtbot.waitUntil(lambda: bool(warnings), timeout=5000)
         assert tab.connection_panel.port_combo.currentText() == app_port
-        assert warnings
     finally:
         holder.close()
         tab.controller.close(force=True)
