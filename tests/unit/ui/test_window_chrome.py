@@ -27,6 +27,7 @@ from qserialtool.ui.window_chrome import (
 )
 
 _WINDOWS = sys.platform.startswith("win")
+_LINUX = sys.platform.startswith("linux")
 
 
 def _buttons(window: object) -> WindowButtons:
@@ -416,6 +417,7 @@ def test_build_window_menu_actions(qapp: QApplication, qtbot: object) -> None:
         window.deleteLater()
 
 
+@pytest.mark.skipif(not _LINUX, reason="Linux 专属无边框标题栏实现")
 def test_enable_linux_custom_title_bar_sets_flag_and_filters(qtbot: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
@@ -428,6 +430,7 @@ def test_enable_linux_custom_title_bar_sets_flag_and_filters(qtbot: object) -> N
         window.close()
 
 
+@pytest.mark.skipif(not _LINUX, reason="Linux 专属无边框标题栏实现")
 def test_linux_title_bar_filter_opens_menu_on_blank_context_click(
     qtbot: object, monkeypatch: object
 ) -> None:
