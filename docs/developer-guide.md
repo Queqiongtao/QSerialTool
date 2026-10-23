@@ -58,7 +58,7 @@ bootstrap -> ui -> application -> domain
 ### 3.2 记录与快照
 
 - `LogRecord` 保存 UTC 时间、方向、原始 `bytes`、文本编码、文本、HEX 和会话 ID。
-- `LogRecord.from_bytes()` 是创建串口记录的标准入口：HEX 必须由原始字节派生；`text` 省略时按编码完整解码，接收路径则传入 `decode_partial()` 跨块补全后的文本。
+- `LogRecord.from_bytes()` 是创建串口记录的标准入口：HEX 必须由原始字节派生，热路径只调用一次 `format_hex()`；`__post_init__()` 先校验长度、分隔符和大写字符集，再解析回字节比对内容，不再重复生成完整 HEX 文本。`text` 省略时按编码完整解码，接收路径则传入 `decode_partial()` 跨块补全后的文本。
 - `decode_partial(data, encoding)` 解码数据块中完整的前缀字符，返回 `(文本, 未完成的尾字节)`，不保留跨块状态；`IncrementalTextDecoder` 面向有状态的流式解码，两者共享同一套解码循环和 `<XX>` 占位规则。
 - `SessionSnapshot` 保存会话 ID、标题、状态、配置、最后错误、RX/TX 字节数和累计淘汰记录数。
 - 回调跨线程传递时只使用不可变 `LogRecord` 和 `SessionSnapshot`。

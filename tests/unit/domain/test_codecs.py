@@ -18,6 +18,7 @@ from qserialtool.domain import (
     format_hex,
     parse_hex,
 )
+from qserialtool.domain.codecs import is_canonical_hex_text
 
 
 @pytest.mark.parametrize(
@@ -63,6 +64,43 @@ def test_format_hex_uses_uppercase_space_separated_output(data: bytes, expected:
 def test_format_hex_rejects_non_bytes_input() -> None:
     with pytest.raises(HexFormatError):
         format_hex(cast(bytes, "AA"))
+
+
+@pytest.mark.parametrize(
+    ("text", "raw"),
+    [
+        ("", b""),
+        ("00", b"\x00"),
+        ("00 FF", b"\x00\xff"),
+        ("D6 D0 CE C4", "中文".encode("gb18030")),
+    ],
+)
+def test_is_canonical_hex_text_accepts_matching_uppercase_hex(text: str, raw: bytes) -> None:
+    assert is_canonical_hex_text(text, raw)
+
+
+@pytest.mark.parametrize(
+    ("text", "raw"),
+    [
+        ("", b"\x00"),
+        ("00", b""),
+        ("0", b"\x00"),
+        ("000", b"\x00"),
+        ("ff", b"\xff"),
+        ("FF", b"\x00"),
+        ("00  FF", b"\x00\xff"),
+        ("00\tFF", b"\x00\xff"),
+        ("00 FF ", b"\x00\xff"),
+        (" 00 FF", b"\x00\xff"),
+        ("0G FF", b"\x00\xff"),
+        (0, b"\x00"),
+        ("00", "raw"),
+    ],
+)
+def test_is_canonical_hex_text_rejects_invalid_or_mismatched_text(
+    text: object, raw: object
+) -> None:
+    assert not is_canonical_hex_text(text, cast(bytes, raw))
 
 
 @pytest.mark.parametrize(

@@ -37,6 +37,7 @@ wheelhouse/
 # IDE and editor state
 .idea/
 .vscode/
+.codebuddy/
 *.swp
 *.swo
 

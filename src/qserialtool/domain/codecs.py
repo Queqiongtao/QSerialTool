@@ -1,5 +1,7 @@
 """HEX、文本编码和换行策略。"""
 
+import re
+
 from .errors import HexFormatError, TextEncodingError, ValidationError
 from .types import (
     SUPPORTED_ENCODINGS,
@@ -9,6 +11,7 @@ from .types import (
 )
 
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_CANONICAL_HEX_TEXT = re.compile(r"[0-9A-F]{2}(?: [0-9A-F]{2})*")
 _LINE_ENDING_BYTES: dict[LineEnding, bytes] = {
     "none": b"",
     "cr": b"\r",
@@ -47,6 +50,27 @@ def format_hex(data: bytes) -> str:
     if not isinstance(data, bytes):
         raise HexFormatError("HEX 格式化输入必须是 bytes。")
     return data.hex(" ").upper()
+
+
+def is_canonical_hex_text(text: object, raw: bytes) -> bool:
+    """判断文本是否为 ``raw`` 的规范 HEX 表示。
+
+    规范格式为大写 ``0-9``/``A-F``、字节之间恰好一个空格；空字节对应空字符串。
+    实现先做结构与长度检查，再解析回字节比对内容，避免在记录热路径上重复生成
+    完整 HEX 字符串。
+    """
+    if not isinstance(text, str) or not isinstance(raw, bytes):
+        return False
+    if not raw:
+        return text == ""
+    if len(text) != len(raw) * 3 - 1:
+        return False
+    if _CANONICAL_HEX_TEXT.fullmatch(text) is None:
+        return False
+    try:
+        return bytes.fromhex(text) == raw
+    except ValueError:
+        return False
 
 
 def _format_invalid_bytes(data: bytes) -> str:

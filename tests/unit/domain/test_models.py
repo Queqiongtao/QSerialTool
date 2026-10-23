@@ -17,6 +17,7 @@ from qserialtool.domain import (
     SessionState,
     UserFacingError,
     ValidationError,
+    format_hex,
 )
 
 
@@ -113,6 +114,55 @@ def test_log_record_from_bytes_derives_text_and_hex() -> None:
     assert record.hex_text == "D6 D0 CE C4"
     assert record.raw == "中文".encode("gb18030")
     assert record.timestamp_utc is timestamp
+
+
+def test_log_record_from_bytes_formats_hex_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[bytes] = []
+
+    def counting_format_hex(data: bytes) -> str:
+        calls.append(data)
+        return format_hex(data)
+
+    monkeypatch.setattr("qserialtool.domain.models.format_hex", counting_format_hex)
+    record = LogRecord.from_bytes(
+        timestamp_utc=datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc),
+        direction="rx",
+        raw=b"\x00\xff",
+        encoding="utf-8",
+        session_id="session-1",
+    )
+
+    assert record.hex_text == "00 FF"
+    assert calls == [b"\x00\xff"]
+
+
+def test_log_record_empty_bytes_has_empty_hex_text() -> None:
+    record = LogRecord.from_bytes(
+        timestamp_utc=datetime.now(timezone.utc),
+        direction="system",
+        raw=b"",
+        encoding="utf-8",
+        session_id="session-1",
+    )
+
+    assert record.hex_text == ""
+
+
+@pytest.mark.parametrize(
+    "hex_text",
+    ["", "0011", "00  11", "00 ", " 00", "00 11 ", "aa bb", "0G 11", "00\t11"],
+)
+def test_log_record_rejects_non_canonical_hex_text(hex_text: str) -> None:
+    with pytest.raises(ValidationError):
+        LogRecord(
+            timestamp_utc=datetime.now(timezone.utc),
+            direction="rx",
+            raw=b"\x00\x11",
+            encoding="utf-8",
+            text="\x00\x11",
+            hex_text=hex_text,
+            session_id="session-1",
+        )
 
 
 def test_log_record_accepts_text_completed_from_previous_chunk() -> None:

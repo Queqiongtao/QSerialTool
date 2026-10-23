@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from .codecs import decode_text, format_hex
+from .codecs import decode_text, format_hex, is_canonical_hex_text
 from .errors import UserFacingError, ValidationError
 from .states import SessionState
 from .types import (
@@ -126,7 +126,7 @@ class LogRecord:
             raise ValidationError("日志编码不受支持。")
         _require_string(self.session_id, "会话 ID")
         _require_string(self.text, "日志文本", allow_empty=True)
-        if self.hex_text != format_hex(self.raw):
+        if not is_canonical_hex_text(self.hex_text, self.raw):
             raise ValidationError("HEX 文本必须由原始字节派生。")
 
     @classmethod
