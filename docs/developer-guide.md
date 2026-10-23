@@ -142,7 +142,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 2. `on_bytes_received()` 用 `decode_partial()` 把上一块的残留尾字节与本次数据拼接后解码：完整字符立即成记录，未成形的尾字节保留到下一块，多字节字符不会因读取边界被拆散。
 3. 断开、强制关闭或 Worker 停止时，残留尾字节按 `<XX>` 占位补一条接收记录，字节不会静默消失。
 4. controller 同时写入有界内存缓冲和活动日志。
-5. 记录通过回调发布，`QtSessionBridge` 将事件投递到 UI。
+5. 记录通过回调发布，`QtSessionBridge` 将事件投递到 UI；日志记录逐条投递，状态快照在桥接层按 `50 ms` 合并，首个立即生效、后续只保留最新，避免高频接收时反复刷新状态条。
 6. 接收面板根据暂停、RX/TX 过滤和文本/HEX 模式决定是否显示。
 
 ### 6.3 发送

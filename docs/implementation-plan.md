@@ -565,7 +565,7 @@ stateDiagram-v2
 2. 非空字节形成 RX LogRecord。
 3. LogRecord 写入内存缓冲。
 4. 若自动日志开启，写入对应 LogSink。
-5. ReceiveService 在约 30 ms 窗口内合并 UI 更新事件。
+5. ReceiveService 在约 30 ms 窗口内合并 UI 更新事件；状态快照在 UI 桥接层按 50 ms 合并，只保留最新一份。
 6. UI 按当前显示模式渲染；文本模式使用增量解码器。
 7. 超过缓冲上限时丢弃最旧记录并累计 `dropped_records`。
 8. UI 首次发生丢弃时显示一次醒目状态提示，不重复弹窗。
