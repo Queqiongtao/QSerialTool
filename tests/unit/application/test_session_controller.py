@@ -67,6 +67,8 @@ def test_controller_rejects_invalid_operations() -> None:
         controller.send(b"data")
     with pytest.raises(ValidationError):
         controller.disconnect(timeout=0)
+    with pytest.raises(ValidationError):
+        controller.close(timeout=-1)
 
 
 def test_controller_requires_force_to_close_active_session() -> None:

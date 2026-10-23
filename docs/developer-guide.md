@@ -158,7 +158,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 2. Worker 退出循环，关闭 `Transport`，最后触发 `on_stopped()`。
 3. controller 刷新并关闭活动日志，然后把状态改回 `disconnected`。
 4. 超时则进入 `error` 并记录“等待串口线程退出超时”。
-5. 关闭标签时窗口先用 `force=True` 关闭会话，再从 `SessionManager` 注销并 `deleteLater()` 排队销毁标签页，释放其控件树、端口轮询定时器和最多 `32 MiB` 的记录缓冲；退出程序时对所有会话使用 `force=True`，Qt 主线程等待 Worker 清理。
+5. 关闭标签时窗口先用 `force=True` 关闭会话，再从 `SessionManager` 注销并 `deleteLater()` 排队销毁标签页，释放其控件树、端口轮询定时器和最多 `32 MiB` 的记录缓冲；退出程序时先对所有会话调用 `request_stop()`，再按共享的 `1.5 s` 截止时间逐个 `close()`，避免多个标签串行等待叠加。
 
 ## 7. 缓冲、配置与日志实现
 

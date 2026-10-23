@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from threading import RLock
+from time import monotonic
 from uuid import uuid4
 
 from qserialtool.application.session_controller import SessionController
@@ -111,9 +112,17 @@ class SessionManager:
         with self._lock:
             self._sessions.pop(session_id, None)
 
-    def close_all(self, *, force: bool = False) -> None:
-        """关闭当前注册的全部会话。"""
-        for controller in reversed(self.sessions):
-            controller.close(force=force)
+    def close_all(self, *, force: bool = False, timeout: float = 1.5) -> None:
+        """关闭全部会话；强制关闭时先并发停机，再共享同一个等待截止时间。"""
+        if timeout < 0:
+            raise ValidationError("关闭超时不能为负数。")
+        controllers = self.sessions
+        if force:
+            for controller in controllers:
+                controller.request_stop()
+        deadline = monotonic() + timeout
+        for controller in reversed(controllers):
+            remaining = max(deadline - monotonic(), 0.0)
+            controller.close(force=force, timeout=remaining)
         with self._lock:
             self._sessions.clear()

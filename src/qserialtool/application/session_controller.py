@@ -231,17 +231,28 @@ class SessionController(WorkerEventHandler):
         self._notify_snapshot(snapshot)
         return True
 
-    def close(self, *, force: bool = False) -> None:
+    def request_stop(self) -> None:
+        """请求当前 Worker 停止但不等待线程退出，供批量关闭先并发停机。"""
+        with self._lock:
+            worker = self._worker
+        if worker is not None:
+            worker.request_stop()
+
+    def close(self, *, force: bool = False, timeout: float = 1.5) -> None:
         """关闭标签状态；活动会话需要显式强制关闭。"""
+        if timeout < 0:
+            raise ValidationError("关闭超时不能为负数。")
         with self._lock:
             state = self._state_machine.state
+            if state is SessionState.CLOSED:
+                return
         if state in {SessionState.CONNECTED, SessionState.CONNECTING, SessionState.DISCONNECTING}:
             if not force:
                 raise InvalidStateTransitionError(state, "close", SessionState.CLOSED)
             worker = self._worker
             if worker is not None:
                 worker.request_stop()
-                worker.join(1.5)
+                worker.join(timeout)
         with self._lock:
             tail_record = self._flush_rx_tail_locked()
             self._state_machine.close(force=force)

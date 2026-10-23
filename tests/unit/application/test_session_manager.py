@@ -2,6 +2,7 @@
 
 from threading import Event
 from typing import cast
+from unittest.mock import Mock
 
 import pytest
 from tests.fixtures.fakes import FakeClock, FakeTransport
@@ -86,6 +87,34 @@ def test_session_manager_close_all_closes_registered_sessions() -> None:
 
     assert session.state is SessionState.CLOSED
     assert manager.sessions == ()
+
+
+def test_session_manager_close_all_requests_stops_before_shared_wait() -> None:
+    manager = SessionManager(transport_factory=FakeTransport, clock=FakeClock())
+    events: list[object] = []
+    first = Mock()
+    second = Mock()
+    first.session_id = "one"
+    second.session_id = "two"
+    first.request_stop.side_effect = lambda: events.append("stop-one")
+    second.request_stop.side_effect = lambda: events.append("stop-two")
+    first.close.side_effect = lambda **kwargs: events.append(("close-one", kwargs))
+    second.close.side_effect = lambda **kwargs: events.append(("close-two", kwargs))
+    manager._sessions = {"one": first, "two": second}
+
+    manager.close_all(force=True, timeout=0.5)
+
+    assert events[:2] == ["stop-one", "stop-two"]
+    assert events[2][0] == "close-two"
+    assert events[3][0] == "close-one"
+    assert 0 <= events[2][1]["timeout"] <= 0.5
+    assert manager.sessions == ()
+
+
+def test_session_manager_close_all_rejects_negative_timeout() -> None:
+    manager = SessionManager(transport_factory=FakeTransport, clock=FakeClock())
+    with pytest.raises(ValidationError):
+        manager.close_all(timeout=-1)
 
 
 def test_session_manager_rejects_non_callable_factory() -> None:
