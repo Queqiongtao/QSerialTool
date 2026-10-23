@@ -2,7 +2,7 @@
 
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QFont, QTextOption, QWheelEvent
-from PySide6.QtWidgets import QApplication, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QMessageBox, QPlainTextEdit
 from tests.fixtures.fakes import FakeClock, FakeTransport
 from tests.fixtures.ui_helpers import (
     RecordingStore,
@@ -12,7 +12,13 @@ from tests.fixtures.ui_helpers import (
 )
 
 from qserialtool.application import SessionManager
-from qserialtool.domain import AppConfig, PortInfo, SerialConfig, SessionPreferences
+from qserialtool.domain import (
+    AppConfig,
+    ConfigIOError,
+    PortInfo,
+    SerialConfig,
+    SessionPreferences,
+)
 from qserialtool.ui import MainWindow
 from qserialtool.ui.theme_manager import DATA_FONT_PRESETS, data_font
 
@@ -334,6 +340,42 @@ def test_font_menu_lists_presets_and_zoom_actions(qtbot: object) -> None:
         assert _checked_font_size(window) == 0
     finally:
         window.close()
+
+
+class _FailingStore:
+    """保存配置时固定失败，用于验证退出提示。"""
+
+    def load(self) -> None:
+        return None
+
+    def save(self, config: object) -> None:
+        raise ConfigIOError("配置目录不可写。")
+
+
+def test_close_prompts_when_config_save_fails(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    window = build_window_with_store(qtbot, FakeTransport(), _FailingStore())  # type: ignore[arg-type]
+    prompts: list[str] = []
+    answers = iter((QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes))
+
+    def question(*args: object, **kwargs: object) -> QMessageBox.StandardButton:
+        prompts.append(str(args[2]))
+        return next(answers)
+
+    monkeypatch.setattr(QMessageBox, "question", question)  # type: ignore[attr-defined]
+
+    window.close()
+
+    assert window.isVisible()
+    assert len(prompts) == 1
+    assert "配置目录不可写" in prompts[0]
+
+    window.close()
+
+    assert not window.isVisible()
+    assert len(prompts) == 2
 
 
 def test_theme_menu_exposes_exclusive_choices(qtbot: object) -> None:

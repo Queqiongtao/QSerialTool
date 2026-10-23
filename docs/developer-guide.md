@@ -177,7 +177,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - 读取到不可解析或不受支持的内容时，复制为 `settings.corrupt.<UTC时间>.json` 并返回 `None`。
 - 单个无效会话会被跳过，其他有效会话继续加载。
 - `AppConfig.data_font_size` 保存全局数据字号（默认 `0` 表示跟随系统），有效值为 `0` 或 `8..28`；旧配置缺少该字段时按 `0` 迁移，非法值会被拒绝。
-- `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时同步保存。标签标题取自 `SessionController.title`，可通过 `rename()` 修改（去空白后非空、最长 `MAX_SESSION_TITLE_LENGTH = 40`）；改名后广播快照并随 `SessionPreferences.title` 持久化。`view_mode` 也随标签保存；终端视图会暂存分栏比例，切回分栏时恢复。
+- `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时先保存；退出保存失败会弹窗说明影响并询问是否仍要退出，自动保存失败只显示状态栏提示。标签标题取自 `SessionController.title`，可通过 `rename()` 修改（去空白后非空、最长 `MAX_SESSION_TITLE_LENGTH = 40`）；改名后广播快照并随 `SessionPreferences.title` 持久化。`view_mode` 也随标签保存；终端视图会暂存分栏比例，切回分栏时恢复。
 
 ### 7.3 自动日志
 

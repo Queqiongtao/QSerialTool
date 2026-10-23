@@ -501,9 +501,10 @@ class MainWindow(QMainWindow):
         if self._config_store is not None:
             self._save_timer.start()
 
-    def _save_config(self) -> None:
+    def _save_config(self, *, confirm_exit: bool = False) -> bool:
+        """保存配置并返回是否可以继续；退出失败时由用户决定是否放弃保存。"""
         if self._config_store is None:
-            return
+            return True
         active_tab = self.tabs.currentWidget()
         if isinstance(active_tab, SessionTab):
             self._sidebar_visible, self._sidebar_width, self._content_splitter_state = (
@@ -527,13 +528,24 @@ class MainWindow(QMainWindow):
             data_font_size=self._data_font_size,
         )
         if config == self._last_saved:
-            return
+            return True
         try:
             self._config_store.save(config)
             self._last_saved = config
+            return True
         except ConfigIOError as exc:
             logger.warning("配置保存失败：%s", exc.message)
+            if confirm_exit:
+                answer = QMessageBox.question(
+                    self,
+                    "配置保存失败",
+                    f"{exc.message}\n\n退出后窗口布局和标签设置可能无法恢复，仍要退出吗？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                return answer == QMessageBox.StandardButton.Yes
             self.statusBar().showMessage(exc.message, 5000)
+            return False
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """确认后异步关闭活动会话；全部释放后再真正退出。"""
@@ -560,7 +572,9 @@ class MainWindow(QMainWindow):
                     return
                 break
         self._save_timer.stop()
-        self._save_config()
+        if not self._save_config(confirm_exit=True):
+            event.ignore()
+            return
         controllers = self._session_manager.sessions
         self._session_manager.begin_close_all(force=True)
         if all(controller.is_closed for controller in controllers):
