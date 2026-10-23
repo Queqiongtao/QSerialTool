@@ -235,7 +235,7 @@ CSV 输出使用 `utf-8-sig` 和 RFC 4180 字段：`timestamp`、`direction`、`
 - 日志与配置文件 I/O 错误。
 - 未预期内部错误。
 
-底层 `pyserial` 异常在 `SerialTransport` 边界映射为领域错误；UI 不显示未处理的 traceback。
+底层 `pyserial` 异常在 `SerialTransport` 边界映射为领域错误；UI 不显示未处理的 traceback。Worker 顶层的未预期异常会写入诊断日志，并通过 `on_io_error()` 上报 `InternalError`，随后关闭传输并发布停止事件；若错误上报本身再次失败，只记录诊断日志，不让线程异常外泄。
 
 ## 10. 质量门禁与文档同步
 

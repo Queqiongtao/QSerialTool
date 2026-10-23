@@ -179,12 +179,20 @@ class SerialWorker:
                     self._event_handler.on_io_error(TransportIOError("串口已关闭。"))
                     break
                 self._read_once(transport)
-        except Exception:
+        except Exception as exc:
             logger.exception("串口线程发生未预期错误，线程提前退出。")
+            self._report_unexpected_failure(exc)
         finally:
             if opened:
                 self._close_transport(transport)
             self._event_handler.on_stopped()
+
+    def _report_unexpected_failure(self, error: BaseException) -> None:
+        """把线程顶层未预期异常转换为用户可见错误，上报失败只写诊断日志。"""
+        try:
+            self._event_handler.on_io_error(InternalError(f"串口线程发生未预期错误：{error}"))
+        except Exception:
+            logger.exception("上报串口线程未预期错误失败。")
 
     def _process_control_commands(self, transport: Transport) -> bool:
         while True:

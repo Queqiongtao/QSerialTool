@@ -26,6 +26,13 @@ class _ExplodingHandler(RecordingWorkerHandler):
         raise RuntimeError("callback failed")
 
 
+class _ExplodingErrorHandler(_ExplodingHandler):
+    """上报 I/O 错误时再次抛出异常，验证兜底路径不会泄漏线程异常。"""
+
+    def on_io_error(self, error: object) -> None:
+        raise RuntimeError("error callback failed")
+
+
 class _GatedTransport(FakeTransport):
     """首次写入先卡住，便于验证突发发送在同一 I/O 轮次内批量写出。"""
 
@@ -152,10 +159,32 @@ def test_worker_logs_unexpected_loop_errors(caplog: object) -> None:
     worker.start()
     transport.push_read(b"x")
 
+    assert handler.io_error_event.wait(2.0)
     assert handler.stopped_event.wait(2.0)
     assert worker.join(2.0)
     assert not transport.is_open
+    assert isinstance(handler.io_errors[0], InternalError)
+    assert "串口线程发生未预期错误" in handler.io_errors[0].message
     assert "串口线程发生未预期错误" in caplog.text
+
+
+def test_worker_survives_failure_while_reporting_unexpected_error(caplog: object) -> None:
+    transport = FakeTransport()
+    handler = _ExplodingErrorHandler()
+    worker = SerialWorker(
+        config=SerialConfig(port="COM1"),
+        transport_factory=lambda: transport,
+        event_handler=handler,
+        options=SerialWorkerOptions(read_timeout=0.005),
+    )
+
+    worker.start()
+    transport.push_read(b"x")
+
+    assert handler.stopped_event.wait(2.0)
+    assert worker.join(2.0)
+    assert not transport.is_open
+    assert "上报串口线程未预期错误失败" in caplog.text
 
 
 @pytest.mark.parametrize(
