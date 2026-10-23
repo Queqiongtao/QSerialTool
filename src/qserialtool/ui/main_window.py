@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from time import monotonic
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QContextMenuEvent, QMouseEvent
@@ -93,6 +94,12 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._save_config)
+        self._shutdown_started = False
+        self._shutdown_complete = False
+        self._shutdown_deadline = 0.0
+        self._shutdown_timer = QTimer(self)
+        self._shutdown_timer.setInterval(50)
+        self._shutdown_timer.timeout.connect(self._poll_shutdown)
         self.tabs = QTabWidget()
         self.tab_bar = SessionTabBar(self.tabs)
         self.tabs.setTabBar(self.tab_bar)
@@ -422,6 +429,19 @@ class MainWindow(QMainWindow):
             return
         if not widget.request_close():
             return
+        if widget.controller.state is SessionState.CLOSED:
+            self._finish_tab_close(widget)
+            return
+        widget.closed.connect(
+            lambda tab=widget: self._finish_tab_close(tab),
+            Qt.ConnectionType.QueuedConnection,
+        )
+
+    def _finish_tab_close(self, widget: SessionTab) -> None:
+        """异步关闭完成后移除标签并释放控件树。"""
+        index = self.tabs.indexOf(widget)
+        if index < 0:
+            return
         self._session_manager.remove_session(widget.controller.session_id)
         self.tabs.removeTab(index)
         # removeTab 只把控件移出标签栏，它仍挂在 QTabWidget 下；显式排队销毁，
@@ -516,7 +536,13 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(exc.message, 5000)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """关闭窗口前确认活动会话并保存配置。"""
+        """确认后异步关闭活动会话；全部释放后再真正退出。"""
+        if self._shutdown_complete:
+            event.accept()
+            return
+        if self._shutdown_started:
+            event.ignore()
+            return
         for index in range(self.tabs.count()):
             widget = self.tabs.widget(index)
             if isinstance(widget, SessionTab) and widget.controller.state in {
@@ -535,5 +561,32 @@ class MainWindow(QMainWindow):
                 break
         self._save_timer.stop()
         self._save_config()
-        self._session_manager.close_all(force=True)
-        event.accept()
+        controllers = self._session_manager.sessions
+        self._session_manager.begin_close_all(force=True)
+        if all(controller.is_closed for controller in controllers):
+            self._shutdown_complete = True
+            self._session_manager.close_all(force=True, timeout=0)
+            event.accept()
+            return
+        self._shutdown_started = True
+        self._shutdown_deadline = monotonic() + 2.0
+        self._shutdown_timer.start()
+        self.statusBar().showMessage("正在关闭串口...")
+        event.ignore()
+
+    def _poll_shutdown(self) -> None:
+        """等待全部会话完成关闭；超时后强制收尾并退出。"""
+        controllers = self._session_manager.sessions
+        if all(controller.is_closed for controller in controllers):
+            self._finish_shutdown()
+            return
+        if monotonic() >= self._shutdown_deadline:
+            logger.warning("等待串口线程退出超时，强制关闭剩余会话。")
+            self._session_manager.close_all(force=True, timeout=0)
+            self._finish_shutdown()
+
+    def _finish_shutdown(self) -> None:
+        self._shutdown_timer.stop()
+        self._shutdown_complete = True
+        self._session_manager.close_all(force=True, timeout=0)
+        self.close()

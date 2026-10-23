@@ -55,6 +55,8 @@ class SessionTab(QWidget):
     # 侧栏可见性与视图模式变化时广播；主窗口据此同步标签行顶部的按钮。
     sidebar_visibility_changed = Signal(bool)
     view_mode_changed = Signal(str)
+    # 异步关闭完成；主窗口收到后移除标签。
+    closed = Signal()
 
     def __init__(
         self,
@@ -336,6 +338,10 @@ class SessionTab(QWidget):
             self.title_changed.emit(snapshot.title)
         if previous is None or snapshot.state is not previous.state:
             self.state_changed.emit(snapshot.state)
+        if snapshot.state is SessionState.CLOSED and (
+            previous is None or previous.state is not SessionState.CLOSED
+        ):
+            self.closed.emit()
         # 工作线程按记录广播快照；状态与配置未变时跳过重量级面板，只刷新状态条。
         if (
             previous is None
@@ -385,9 +391,14 @@ class SessionTab(QWidget):
         self.preferences_changed.emit()
 
     def request_close(self) -> bool:
-        """在需要时确认并关闭会话。"""
+        """确认后启动关闭；活动会话异步释放，完成后发出 ``closed``。"""
         state = self.controller.state
-        if state in {SessionState.CONNECTED, SessionState.CONNECTING, SessionState.DISCONNECTING}:
+        active = state in {
+            SessionState.CONNECTED,
+            SessionState.CONNECTING,
+            SessionState.DISCONNECTING,
+        }
+        if active:
             answer = QMessageBox.question(
                 self,
                 "关闭会话",
@@ -395,7 +406,12 @@ class SessionTab(QWidget):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return False
-            self.controller.close(force=True)
-        else:
-            self.controller.close()
+        try:
+            if active:
+                self.controller.begin_close(force=True)
+            else:
+                self.controller.close()
+        except DomainError as exc:
+            QMessageBox.warning(self, "关闭会话失败", exc.message)
+            return False
         return True

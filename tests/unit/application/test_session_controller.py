@@ -124,6 +124,30 @@ class BlockingOpenTransport(FakeTransport):
         super().open(config)
 
 
+def test_controller_begin_close_finishes_after_worker_stops() -> None:
+    transport = BlockingOpenTransport()
+    snapshots = SnapshotRecorder()
+    controller = build_controller(transport, snapshots=snapshots)
+    controller.connect()
+    assert transport.open_started.wait(1.0)
+
+    assert controller.begin_close(force=True) is False
+    assert controller.state is SessionState.CONNECTING
+    assert not controller.is_closed
+
+    transport.release_open.set()
+    assert snapshots.wait_for(lambda snapshot: snapshot.state is SessionState.CLOSED)
+    assert controller.is_closed
+
+
+def test_controller_begin_close_finishes_immediately_when_idle() -> None:
+    controller = build_controller(FakeTransport())
+
+    assert controller.begin_close() is True
+    assert controller.state is SessionState.CLOSED
+    assert controller.is_closed
+
+
 def test_controller_rejects_non_callable_transport_factory() -> None:
     with pytest.raises(ValidationError):
         SessionController(

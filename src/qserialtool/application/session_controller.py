@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock
 from uuid import uuid4
 
 from qserialtool.application.serial_worker import SerialWorker, WorkerEventHandler
@@ -79,6 +79,8 @@ class SessionController(WorkerEventHandler):
             session_id=self._session_id,
         )
         self._worker: SerialWorker | None = None
+        self._close_requested = False
+        self._closed_event = Event()
         self._on_snapshot = selected_options.on_snapshot
         self._on_record = selected_options.on_record
         self._notify_snapshot(self._build_snapshot())
@@ -119,6 +121,12 @@ class SessionController(WorkerEventHandler):
         """返回线程安全的只读状态快照。"""
         with self._lock:
             return self._build_snapshot()
+
+    @property
+    def is_closed(self) -> bool:
+        """返回会话是否已完成关闭。"""
+        with self._lock:
+            return self._state_machine.state is SessionState.CLOSED
 
     @property
     def records(self) -> tuple[LogRecord, ...]:
@@ -238,25 +246,62 @@ class SessionController(WorkerEventHandler):
         if worker is not None:
             worker.request_stop()
 
-    def close(self, *, force: bool = False, timeout: float = 1.5) -> None:
-        """关闭标签状态；活动会话需要显式强制关闭。"""
-        if timeout < 0:
-            raise ValidationError("关闭超时不能为负数。")
+    def begin_close(self, *, force: bool = False) -> bool:
+        """启动异步关闭。
+
+        返回 ``True`` 表示会话已立即关闭；返回 ``False`` 表示已通知 Worker
+        停止，调用方应等待 ``is_closed`` 或关闭快照后再移除界面。
+        """
         with self._lock:
             state = self._state_machine.state
             if state is SessionState.CLOSED:
-                return
-        if state in {SessionState.CONNECTED, SessionState.CONNECTING, SessionState.DISCONNECTING}:
-            if not force:
+                return True
+            if (
+                state
+                in {
+                    SessionState.CONNECTED,
+                    SessionState.CONNECTING,
+                    SessionState.DISCONNECTING,
+                }
+                and not force
+            ):
                 raise InvalidStateTransitionError(state, "close", SessionState.CLOSED)
-            worker = self._worker
-            if worker is not None:
-                worker.request_stop()
-                worker.join(timeout)
+            if self._close_requested:
+                worker = self._worker
+                tail_record = None
+                snapshot = None
+                completed = False
+            else:
+                self._close_requested = True
+                worker = self._worker
+                if state is SessionState.CONNECTED:
+                    self._state_machine.begin_disconnect()
+                if worker is None:
+                    tail_record = self._finalize_close_locked()
+                    completed = True
+                else:
+                    tail_record = None
+                    completed = False
+                snapshot = self._build_snapshot()
+        if tail_record is not None:
+            self._notify_record(tail_record)
+        if snapshot is not None:
+            self._notify_snapshot(snapshot)
+        if worker is not None:
+            worker.request_stop()
+        return completed
+
+    def close(self, *, force: bool = False, timeout: float = 1.5) -> None:
+        """同步关闭标签状态；活动会话需要显式强制关闭。"""
+        if timeout < 0:
+            raise ValidationError("关闭超时不能为负数。")
+        if self.begin_close(force=force):
+            return
+        if self._closed_event.wait(timeout):
+            return
         with self._lock:
-            tail_record = self._flush_rx_tail_locked()
-            self._state_machine.close(force=force)
-            self._worker = None
+            tail_record = self._finalize_close_locked()
+            self._errors.record(TransportIOError("等待串口线程退出超时。"))
             snapshot = self._build_snapshot()
         if tail_record is not None:
             self._notify_record(tail_record)
@@ -345,22 +390,38 @@ class SessionController(WorkerEventHandler):
     def on_stopped(self) -> None:
         """处理 Worker 已结束事件。"""
         with self._lock:
-            state = self._state_machine.state
-            if state is SessionState.CONNECTING:
-                self._state_machine.mark_connect_failed()
-                self._errors.record(TransportIOError("串口线程在连接完成前结束。"))
-            elif state is SessionState.CONNECTED:
-                self._state_machine.begin_disconnect()
-                self._state_machine.mark_disconnected()
-            elif state is SessionState.DISCONNECTING:
-                self._state_machine.mark_disconnected()
-            tail_record = self._flush_rx_tail_locked()
-            self._log.close()
-            self._worker = None
-            snapshot = self._build_snapshot()
+            if self._close_requested:
+                tail_record = self._finalize_close_locked()
+                snapshot = self._build_snapshot()
+            else:
+                state = self._state_machine.state
+                if state is SessionState.CONNECTING:
+                    self._state_machine.mark_connect_failed()
+                    self._errors.record(TransportIOError("串口线程在连接完成前结束。"))
+                elif state is SessionState.CONNECTED:
+                    self._state_machine.begin_disconnect()
+                    self._state_machine.mark_disconnected()
+                elif state is SessionState.DISCONNECTING:
+                    self._state_machine.mark_disconnected()
+                tail_record = self._flush_rx_tail_locked()
+                self._log.close()
+                self._worker = None
+                snapshot = self._build_snapshot()
         if tail_record is not None:
             self._notify_record(tail_record)
         self._notify_snapshot(snapshot)
+
+    def _finalize_close_locked(self) -> LogRecord | None:
+        """在会话锁内完成关闭；重复调用只保证关闭事件已置位。"""
+        if self._state_machine.state is SessionState.CLOSED:
+            self._closed_event.set()
+            return None
+        tail_record = self._flush_rx_tail_locked()
+        self._log.close()
+        self._worker = None
+        self._state_machine.close(force=True)
+        self._closed_event.set()
+        return tail_record
 
     def _flush_rx_tail_locked(self) -> LogRecord | None:
         """把未成形的尾字节记为接收记录，避免断开时静默丢弃。"""

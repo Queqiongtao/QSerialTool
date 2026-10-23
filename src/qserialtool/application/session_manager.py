@@ -112,6 +112,11 @@ class SessionManager:
         with self._lock:
             self._sessions.pop(session_id, None)
 
+    def begin_close_all(self, *, force: bool = False) -> None:
+        """通知全部会话开始异步关闭，不等待 Worker 退出。"""
+        for controller in self.sessions:
+            controller.begin_close(force=force)
+
     def close_all(self, *, force: bool = False, timeout: float = 1.5) -> None:
         """关闭全部会话；强制关闭时先并发停机，再共享同一个等待截止时间。"""
         if timeout < 0:

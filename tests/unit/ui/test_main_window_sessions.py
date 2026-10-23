@@ -1,5 +1,7 @@
 """测试主窗口的会话生命周期、连接收发与标签关闭。"""
 
+from threading import Event
+
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -104,10 +106,82 @@ def test_main_window_requires_confirmation_to_close_active_tab(
 
     window._close_tab(0)
 
-    assert window.tabs.count() == 0
+    qtbot.waitUntil(lambda: window.tabs.count() == 0, timeout=2000)
     assert tab.controller.state is SessionState.CLOSED
     assert transport.close_count == 1
     window.close()
+
+
+class _BlockingReadTransport(FakeTransport):
+    """读循环阻塞到测试释放，用于观察异步关闭的中间状态。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.read_blocked = Event()
+        self.release_read = Event()
+
+    def read(self, max_bytes: int, timeout: float) -> bytes:
+        self.read_blocked.set()
+        self.release_read.wait(2.0)
+        return b""
+
+
+def test_close_tab_waits_for_worker_without_blocking(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = _BlockingReadTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+    try:
+        connect_session(qtbot, tab)
+        assert transport.read_blocked.wait(1.0)
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+
+        window._close_tab(0)
+
+        assert window.tabs.count() == 1
+        assert tab.controller.state is SessionState.DISCONNECTING
+        transport.release_read.set()
+        qtbot.waitUntil(lambda: window.tabs.count() == 0, timeout=2000)
+        assert tab.controller.state is SessionState.CLOSED
+    finally:
+        transport.release_read.set()
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_window_close_defers_until_active_session_closes(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = _BlockingReadTransport()
+    window = build_window(qtbot, transport)
+    tab = current_tab(window)
+    try:
+        connect_session(qtbot, tab)
+        assert transport.read_blocked.wait(1.0)
+        monkeypatch.setattr(
+            QMessageBox,
+            "question",
+            lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+        )
+
+        window.close()
+
+        assert window.isVisible()
+        assert tab.controller.state is SessionState.DISCONNECTING
+        transport.release_read.set()
+        qtbot.waitUntil(lambda: not window.isVisible(), timeout=3000)
+        assert tab.controller.state is SessionState.CLOSED
+    finally:
+        transport.release_read.set()
+        tab.controller.close(force=True)
+        window.close()
 
 
 def test_close_tab_schedules_widget_destruction(qtbot: object) -> None:
