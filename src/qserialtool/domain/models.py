@@ -9,12 +9,15 @@ from .states import SessionState
 from .types import (
     DEFAULT_DATA_FONT_SIZE,
     DEFAULT_LINE_ENDING,
+    DEFAULT_RECEIVE_BUFFER_BYTES,
     MAX_DATA_FONT_SIZE,
     MAX_PERIODIC_INTERVAL_MS,
+    MAX_RECEIVE_BUFFER_BYTES,
     MAX_SEND_HISTORY,
     MAX_SIDEBAR_WIDTH,
     MIN_DATA_FONT_SIZE,
     MIN_PERIODIC_INTERVAL_MS,
+    MIN_RECEIVE_BUFFER_BYTES,
     MIN_SIDEBAR_WIDTH,
     SUPPORTED_BYTESIZES,
     SUPPORTED_ENCODINGS,
@@ -52,6 +55,11 @@ def _require_bool(value: object, field_name: str) -> None:
 def _require_non_negative_int(value: object, field_name: str) -> None:
     if type(value) is not int or value < 0:
         raise ValidationError(f"{field_name} 必须是非负整数。")
+
+
+def _require_receive_buffer_bytes(value: object) -> None:
+    if type(value) is not int or not MIN_RECEIVE_BUFFER_BYTES <= value <= MAX_RECEIVE_BUFFER_BYTES:
+        raise ValidationError("接收缓存必须在 1 MiB 到 512 MiB 之间。")
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +265,7 @@ class AppConfig:
     sidebar_width: int = 320
     content_splitter_state: str | None = None
     data_font_size: int = DEFAULT_DATA_FONT_SIZE
+    receive_buffer_bytes: int = DEFAULT_RECEIVE_BUFFER_BYTES
 
     def __post_init__(self) -> None:
         if type(self.schema_version) is not int or self.schema_version <= 0:
@@ -292,3 +301,4 @@ class AppConfig:
             self.content_splitter_state, str
         ):
             raise ValidationError("content_splitter_state 必须是字符串或 None。")
+        _require_receive_buffer_bytes(self.receive_buffer_bytes)

@@ -12,10 +12,14 @@ from qserialtool.application.session_options import (
     SnapshotCallback,
 )
 from qserialtool.domain import (
+    DEFAULT_MAX_BYTES,
+    MAX_RECEIVE_BUFFER_BYTES,
+    MIN_RECEIVE_BUFFER_BYTES,
     Clock,
     LogFormat,
     LogSink,
     PortBusyError,
+    RecordBuffer,
     SerialConfig,
     SessionState,
     Transport,
@@ -33,14 +37,21 @@ class SessionManager:
         clock: Clock,
         session_id_factory: Callable[[], str] | None = None,
         log_sink_factory: Callable[[LogFormat], LogSink] | None = None,
+        buffer_max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> None:
         if not callable(transport_factory):
             raise ValidationError("transport_factory 必须可调用。")
+        if (
+            type(buffer_max_bytes) is not int
+            or not MIN_RECEIVE_BUFFER_BYTES <= buffer_max_bytes <= MAX_RECEIVE_BUFFER_BYTES
+        ):
+            raise ValidationError("接收缓存必须在 1 MiB 到 512 MiB 之间。")
         self._lock = RLock()
         self._transport_factory = transport_factory
         self._clock = clock
         self._session_id_factory = session_id_factory or (lambda: uuid4().hex)
         self._log_sink_factory = log_sink_factory
+        self._buffer_max_bytes = buffer_max_bytes
         self._sessions: dict[str, SessionController] = {}
 
     @property
@@ -48,6 +59,19 @@ class SessionManager:
         """返回当前会话的稳定顺序快照。"""
         with self._lock:
             return tuple(self._sessions.values())
+
+    def set_receive_buffer_bytes(self, max_bytes: int) -> None:
+        """调整默认及现有会话的接收缓冲字节上限。"""
+        if (
+            type(max_bytes) is not int
+            or not MIN_RECEIVE_BUFFER_BYTES <= max_bytes <= MAX_RECEIVE_BUFFER_BYTES
+        ):
+            raise ValidationError("接收缓存必须在 1 MiB 到 512 MiB 之间。")
+        with self._lock:
+            self._buffer_max_bytes = max_bytes
+            controllers = tuple(self._sessions.values())
+        for controller in controllers:
+            controller.set_receive_buffer_bytes(max_bytes)
 
     def create_session(
         self,
@@ -69,6 +93,7 @@ class SessionManager:
                 options=SessionControllerOptions(
                     session_id=session_id,
                     title=title,
+                    buffer=RecordBuffer(max_bytes=self._buffer_max_bytes),
                     on_snapshot=on_snapshot,
                     on_record=on_record,
                     log_sink_factory=self._log_sink_factory,

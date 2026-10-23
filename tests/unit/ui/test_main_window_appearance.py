@@ -378,6 +378,39 @@ def test_close_prompts_when_config_save_fails(
     assert len(prompts) == 2
 
 
+def test_receive_buffer_menu_updates_sessions_and_persists(qtbot: object) -> None:
+    store = RecordingStore()
+    window = build_window_with_store(qtbot, FakeTransport(), store)
+    tab = current_tab(window)
+
+    try:
+        assert [action.text() for action in window.receive_buffer_actions] == [
+            "16 MiB",
+            "32 MiB",
+            "64 MiB",
+        ]
+        checked = next(action for action in window.receive_buffer_actions if action.isChecked())
+        assert checked.data() == 32 * 1024 * 1024
+        assert any(
+            action.menu() is window.receive_buffer_menu for action in window.main_menu.actions()
+        )
+
+        action_16 = next(
+            action for action in window.receive_buffer_actions if action.data() == 16 * 1024 * 1024
+        )
+        action_16.setChecked(True)
+
+        assert tab.controller.receive_buffer_bytes == 16 * 1024 * 1024
+        second = window.new_session()
+        assert second.controller.receive_buffer_bytes == 16 * 1024 * 1024
+
+        window._save_timer.stop()
+        window._save_config()
+        assert store.saves[-1].receive_buffer_bytes == 16 * 1024 * 1024
+    finally:
+        window.close()
+
+
 def test_theme_menu_exposes_exclusive_choices(qtbot: object) -> None:
     """“主题”子菜单三项互斥，勾选即切换并持久化。"""
     store = RecordingStore()

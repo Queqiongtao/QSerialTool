@@ -10,6 +10,7 @@ import pytest
 
 from qserialtool.domain import (
     DEFAULT_LINE_ENDING,
+    DEFAULT_RECEIVE_BUFFER_BYTES,
     AppConfig,
     LogIOError,
     LogRecord,
@@ -60,6 +61,7 @@ def _app_config() -> AppConfig:
         sidebar_width=360,
         content_splitter_state="splitter-state",
         data_font_size=16,
+        receive_buffer_bytes=64 * 1024 * 1024,
     )
 
 
@@ -101,6 +103,19 @@ def test_json_config_defaults_view_mode_for_legacy_files(tmp_path: Path) -> None
 
     assert loaded is not None
     assert loaded.sessions[0].view_mode == "split"
+
+
+def test_json_config_defaults_receive_buffer_for_legacy_files(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    del payload["receive_buffer_bytes"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.receive_buffer_bytes == DEFAULT_RECEIVE_BUFFER_BYTES == 32 * 1024 * 1024
 
 
 def test_json_config_defaults_line_ending_for_legacy_files(tmp_path: Path) -> None:

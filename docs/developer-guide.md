@@ -164,7 +164,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 
 ### 7.1 内存缓冲
 
-`RecordBuffer` 默认同时限制 `100,000` 条记录和 `32 MiB` 原始字节。超过任一限制时从最旧记录开始淘汰；单条记录超过总字节上限时抛出 `BufferCapacityError`。`clear()` 只删除当前记录，不重置累计淘汰数。`ReceivePanel` 只渲染最近 `2000` 条并把隐藏条数写成提示行，`QPlainTextEdit` 文档块上限固定为 `2002`，避免整表重插阻塞主线程。
+`RecordBuffer` 默认同时限制 `100,000` 条记录和 `32 MiB` 原始字节。字节上限可由 `AppConfig.receive_buffer_bytes` 配置为 `16 MiB`、`32 MiB` 或 `64 MiB`，切换后立即应用到全部会话并淘汰超限旧记录；超过任一限制时从最旧记录开始淘汰，单条记录超过总字节上限时抛出 `BufferCapacityError`。`clear()` 只删除当前记录，不重置累计淘汰数。`ReceivePanel` 只渲染最近 `2000` 条并把隐藏条数写成提示行，`QPlainTextEdit` 文档块上限固定为 `2002`，避免整表重插阻塞主线程。
 
 ### 7.2 配置持久化
 
@@ -178,6 +178,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - 单个无效会话会被跳过，其他有效会话继续加载。
 - 配置 schema 版本由 `domain.types.CONFIG_SCHEMA_VERSION` 统一提供，基础设施和 UI 不各自硬编码。
 - `AppConfig.data_font_size` 保存全局数据字号（默认 `0` 表示跟随系统），有效值为 `0` 或 `8..28`；旧配置缺少该字段时按 `0` 迁移，非法值会被拒绝。
+- `AppConfig.receive_buffer_bytes` 保存全局接收缓存字节上限，允许 `1 MiB..512 MiB`，界面提供 `16/32/64 MiB` 三档，默认 `32 MiB`；旧配置缺少该字段时按默认值迁移。
 - `MainWindow` 使用 `500 ms` 单次定时器合并保存请求，保存前用最近一次成功的 `AppConfig` 与当前快照比较，完全相同时跳过写盘，并在退出时先保存；退出保存失败会弹窗说明影响并询问是否仍要退出，自动保存失败只显示状态栏提示。标签标题取自 `SessionController.title`，可通过 `rename()` 修改（去空白后非空、最长 `MAX_SESSION_TITLE_LENGTH = 40`）；改名后广播快照并随 `SessionPreferences.title` 持久化。`view_mode` 也随标签保存；终端视图会暂存分栏比例，切回分栏时恢复。
 
 ### 7.3 自动日志

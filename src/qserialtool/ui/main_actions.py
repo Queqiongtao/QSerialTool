@@ -37,6 +37,13 @@ FONT_SIZE_CHOICES: tuple[tuple[str, int], ...] = (
     *((str(size), size) for size in DATA_FONT_PRESETS),
 )
 
+# “接收缓存”子菜单的档位选项。
+RECEIVE_BUFFER_CHOICES: tuple[tuple[str, int], ...] = (
+    ("16 MiB", 16 * 1024 * 1024),
+    ("32 MiB", 32 * 1024 * 1024),
+    ("64 MiB", 64 * 1024 * 1024),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class MainActionCallbacks:
@@ -51,6 +58,7 @@ class MainActionCallbacks:
     show_about: Callable[[], None]
     font_size_changed: Callable[[int], None]
     theme_changed: Callable[[Theme], None]
+    receive_buffer_changed: Callable[[int], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +75,8 @@ class MainActions:
     theme_actions: tuple[QAction, ...]
     font_menu: QMenu
     font_size_actions: tuple[QAction, ...]
+    receive_buffer_menu: QMenu
+    receive_buffer_actions: tuple[QAction, ...]
     font_zoom_in_action: QAction
     font_zoom_out_action: QAction
     font_reset_action: QAction
@@ -92,6 +102,7 @@ def build_main_actions(  # noqa: PLR0913
     *,
     theme: Theme,
     data_font_size: int,
+    receive_buffer_bytes: int,
     callbacks: MainActionCallbacks,
     window_buttons: WindowButtons | None = None,
 ) -> MainActions:
@@ -115,6 +126,9 @@ def build_main_actions(  # noqa: PLR0913
 
     font_actions = _build_font_menu(window, data_font_size, callbacks)
     theme_menu, theme_actions = _build_theme_menu(window, theme, callbacks.theme_changed)
+    receive_buffer_menu, receive_buffer_actions = _build_receive_buffer_menu(
+        window, receive_buffer_bytes, callbacks.receive_buffer_changed
+    )
     help_action = QAction("使用帮助", window)
     help_action.setShortcut(QKeySequence("F1"))
     help_action.triggered.connect(callbacks.show_help)
@@ -128,6 +142,7 @@ def build_main_actions(  # noqa: PLR0913
     main_menu.addSeparator()
     main_menu.addMenu(theme_menu)
     main_menu.addMenu(font_actions.menu)
+    main_menu.addMenu(receive_buffer_menu)
     main_menu.addSeparator()
     main_menu.addAction(help_action)
     main_menu.addAction(about_action)
@@ -172,6 +187,8 @@ def build_main_actions(  # noqa: PLR0913
         theme_actions=theme_actions,
         font_menu=font_actions.menu,
         font_size_actions=font_actions.size_actions,
+        receive_buffer_menu=receive_buffer_menu,
+        receive_buffer_actions=receive_buffer_actions,
         font_zoom_in_action=font_actions.zoom_in,
         font_zoom_out_action=font_actions.zoom_out,
         font_reset_action=font_actions.reset,
@@ -187,7 +204,9 @@ def _build_menu_button(window: QWidget, menu: QMenu) -> QToolButton:
     button.setText("☰")
     button.setAutoRaise(True)
     button.setFixedSize(HEADER_BUTTON_SIZE_PX, HEADER_BUTTON_SIZE_PX)
-    button.setToolTip("新建会话 / 关闭当前会话 / 清空接收区 / 主题 / 字号 / 使用帮助 / 关于 / 退出")
+    button.setToolTip(
+        "新建会话 / 关闭当前会话 / 清空接收区 / 主题 / 字号 / 接收缓存 / 使用帮助 / 关于 / 退出"
+    )
     button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
     button.setMenu(menu)
     return button
@@ -296,6 +315,24 @@ def _build_theme_menu(
     actions: list[QAction] = []
     for label, value in THEMES:
         action = _build_choice_action(window, label, value, value == theme, on_selected)
+        group.addAction(action)
+        menu.addAction(action)
+        actions.append(action)
+    return menu, tuple(actions)
+
+
+def _build_receive_buffer_menu(
+    window: QWidget,
+    current_bytes: int,
+    on_selected: Callable[[int], None],
+) -> tuple[QMenu, tuple[QAction, ...]]:
+    """构造“接收缓存”子菜单，三个容量档位互斥。"""
+    menu = QMenu("接收缓存", window)
+    group = QActionGroup(window)
+    group.setExclusive(True)
+    actions: list[QAction] = []
+    for label, value in RECEIVE_BUFFER_CHOICES:
+        action = _build_choice_action(window, label, value, value == current_bytes, on_selected)
         group.addAction(action)
         menu.addAction(action)
         actions.append(action)

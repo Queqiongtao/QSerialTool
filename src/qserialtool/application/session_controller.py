@@ -19,6 +19,8 @@ from qserialtool.application.session_options import (
 )
 from qserialtool.application.session_recorder import SessionRecorder
 from qserialtool.domain import (
+    MAX_RECEIVE_BUFFER_BYTES,
+    MIN_RECEIVE_BUFFER_BYTES,
     Clock,
     DomainError,
     InvalidStateTransitionError,
@@ -133,6 +135,25 @@ class SessionController(WorkerEventHandler):
         """返回当前内存缓冲的不可变快照。"""
         with self._lock:
             return self._recorder.records
+
+    @property
+    def receive_buffer_bytes(self) -> int:
+        """返回当前接收缓冲字节上限。"""
+        with self._lock:
+            return self._recorder.max_bytes
+
+    def set_receive_buffer_bytes(self, max_bytes: int) -> int:
+        """调整接收缓冲上限并淘汰超限旧记录，返回本次淘汰数。"""
+        if (
+            type(max_bytes) is not int
+            or not MIN_RECEIVE_BUFFER_BYTES <= max_bytes <= MAX_RECEIVE_BUFFER_BYTES
+        ):
+            raise ValidationError("接收缓存必须在 1 MiB 到 512 MiB 之间。")
+        with self._lock:
+            dropped = self._recorder.set_max_bytes(max_bytes)
+            snapshot = self._build_snapshot()
+        self._notify_snapshot(snapshot)
+        return dropped
 
     @property
     def auto_log_enabled(self) -> bool:

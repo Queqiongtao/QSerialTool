@@ -64,6 +64,19 @@ class RecordBuffer:
         self._dropped_records += dropped
         return dropped
 
+    def set_max_bytes(self, max_bytes: int) -> int:
+        """调整字节上限并淘汰超出部分，返回本次淘汰记录数。"""
+        if type(max_bytes) is not int or max_bytes <= 0:
+            raise ValueError("max_bytes 必须是正整数。")
+        self.max_bytes = max_bytes
+        dropped = 0
+        while self._byte_size > self.max_bytes:
+            removed = self._records.popleft()
+            self._byte_size -= len(removed.raw)
+            dropped += 1
+        self._dropped_records += dropped
+        return dropped
+
     def clear(self) -> int:
         """清空当前记录并返回移除数量，不重置累计丢弃计数。"""
         removed = len(self._records)

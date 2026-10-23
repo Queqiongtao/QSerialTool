@@ -8,6 +8,7 @@ import pytest
 
 from qserialtool.domain import (
     DEFAULT_LINE_ENDING,
+    DEFAULT_RECEIVE_BUFFER_BYTES,
     AppConfig,
     ErrorCode,
     LogRecord,
@@ -304,6 +305,20 @@ def test_app_config_rejects_invalid_values(overrides: dict[str, object]) -> None
     values.update(overrides)
     with pytest.raises(ValidationError):
         AppConfig(**values)  # type: ignore[arg-type]
+
+
+def test_app_config_validates_receive_buffer_bytes() -> None:
+    assert AppConfig(1, "system", None, None, 0, ()).receive_buffer_bytes == (
+        DEFAULT_RECEIVE_BUFFER_BYTES
+    )
+
+    for size in (1 * 1024 * 1024, 16 * 1024 * 1024, 64 * 1024 * 1024, 512 * 1024 * 1024):
+        config = AppConfig(1, "system", None, None, 0, (), receive_buffer_bytes=size)
+        assert config.receive_buffer_bytes == size
+
+    for size in (0, -1, 512 * 1024 * 1024 + 1, 16.0, True, "32"):
+        with pytest.raises(ValidationError):
+            AppConfig(1, "system", None, None, 0, (), receive_buffer_bytes=size)  # type: ignore[arg-type]
 
 
 def test_app_config_validates_data_font_size() -> None:

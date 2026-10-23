@@ -89,6 +89,30 @@ def test_session_manager_close_all_closes_registered_sessions() -> None:
     assert manager.sessions == ()
 
 
+def test_session_manager_applies_receive_buffer_bytes() -> None:
+    manager = SessionManager(
+        transport_factory=FakeTransport,
+        clock=FakeClock(),
+        buffer_max_bytes=16 * 1024 * 1024,
+    )
+    first = manager.create_session(config=SerialConfig(port="COM1"))
+    assert first.receive_buffer_bytes == 16 * 1024 * 1024
+
+    manager.set_receive_buffer_bytes(64 * 1024 * 1024)
+    assert first.receive_buffer_bytes == 64 * 1024 * 1024
+
+    second = manager.create_session(config=SerialConfig(port="COM2"))
+    assert second.receive_buffer_bytes == 64 * 1024 * 1024
+    manager.close_all()
+
+
+@pytest.mark.parametrize("size", [0, -1, 512 * 1024 * 1024 + 1, 16.0, True])
+def test_session_manager_rejects_invalid_receive_buffer_bytes(size: object) -> None:
+    manager = SessionManager(transport_factory=FakeTransport, clock=FakeClock())
+    with pytest.raises(ValidationError):
+        manager.set_receive_buffer_bytes(size)  # type: ignore[arg-type]
+
+
 def test_session_manager_close_all_requests_stops_before_shared_wait() -> None:
     manager = SessionManager(transport_factory=FakeTransport, clock=FakeClock())
     events: list[object] = []

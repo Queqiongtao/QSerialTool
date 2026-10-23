@@ -55,6 +55,23 @@ def test_buffer_rejects_invalid_limits(max_records: int, max_bytes: int) -> None
         RecordBuffer(max_records=max_records, max_bytes=max_bytes)
 
 
+def test_buffer_set_max_bytes_evicts_oldest_and_can_expand() -> None:
+    buffer = RecordBuffer(max_records=100, max_bytes=6)
+    records = [_record(bytes([value]) * 2) for value in range(3)]
+    for record in records:
+        buffer.append(record)
+
+    assert buffer.set_max_bytes(4) == 1
+    assert buffer.records == (records[1], records[2])
+    assert buffer.byte_size == 4
+    assert buffer.dropped_records == 1
+
+    assert buffer.set_max_bytes(10) == 0
+    assert buffer.byte_size == 4
+    with pytest.raises(ValueError):
+        buffer.set_max_bytes(0)
+
+
 def test_buffer_clear_preserves_dropped_counter() -> None:
     buffer = RecordBuffer(max_records=1, max_bytes=100)
     buffer.append(_record(b"1"))

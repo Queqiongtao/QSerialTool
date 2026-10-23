@@ -12,6 +12,7 @@ from typing import Any
 from qserialtool.domain import (
     CONFIG_SCHEMA_VERSION,
     DEFAULT_LINE_ENDING,
+    DEFAULT_RECEIVE_BUFFER_BYTES,
     AppConfig,
     ConfigIOError,
     SerialConfig,
@@ -120,6 +121,7 @@ class JsonConfigStore:
             sidebar_width=payload.get("sidebar_width", 320),
             data_font_size=payload.get("data_font_size", 0),
             content_splitter_state=payload.get("content_splitter_state"),
+            receive_buffer_bytes=payload.get("receive_buffer_bytes", DEFAULT_RECEIVE_BUFFER_BYTES),
         )
 
     @staticmethod

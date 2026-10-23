@@ -29,6 +29,15 @@ class SessionRecorder:
         return self._buffer.records
 
     @property
+    def max_bytes(self) -> int:
+        """返回当前接收缓冲字节上限。"""
+        return self._buffer.max_bytes
+
+    def set_max_bytes(self, max_bytes: int) -> int:
+        """调整接收缓冲字节上限并返回本次淘汰记录数。"""
+        return self._buffer.set_max_bytes(max_bytes)
+
+    @property
     def rx_bytes(self) -> int:
         """返回累计接收字节数。"""
         return self._rx_bytes

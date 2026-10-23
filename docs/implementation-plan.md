@@ -506,6 +506,7 @@ class AppConfig:
     window_state: str | None
     active_session_index: int
     sessions: tuple[SessionPreferences, ...]
+    receive_buffer_bytes: int
 ```
 
 ## 8. 会话状态机
@@ -744,6 +745,7 @@ stateDiagram-v2
   "window_geometry": "base64-or-qt-encoded-state",
   "window_state": "base64-or-qt-encoded-state",
   "active_session_index": 0,
+  "receive_buffer_bytes": 33554432,
   "sessions": [
     {
       "title": "COM3",
@@ -787,7 +789,7 @@ stateDiagram-v2
 - JSON 语法错误、schema 不兼容或字段类型错误时，先备份为 `settings.corrupt.<timestamp>.json`。
 - 单个标签配置无效时只跳过或修复该标签，不丢弃其他有效标签。
 - schema 迁移通过注册表按版本顺序执行，禁止在 UI 中临时补字段。
-- V1 只接受 `schema_version=1`；未来版本必须提供迁移函数。
+- V1 只接受 `schema_version=1`；未来版本必须提供迁移函数。新增可选字段（如 `receive_buffer_bytes`）在缺失时使用默认值迁移，不提升 schema 版本。
 
 ### 13.5 恢复规则
 

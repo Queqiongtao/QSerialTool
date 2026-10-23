@@ -22,6 +22,7 @@ from qserialtool import __version__
 from qserialtool.application import MAX_SESSION_TITLE_LENGTH, SessionManager
 from qserialtool.domain import (
     CONFIG_SCHEMA_VERSION,
+    DEFAULT_RECEIVE_BUFFER_BYTES,
     AppConfig,
     ConfigIOError,
     ConfigStore,
@@ -82,6 +83,12 @@ class MainWindow(QMainWindow):
         self._session_counter = 0
         self._theme: Theme = initial_config.theme if initial_config is not None else "system"
         self._data_font_size = initial_config.data_font_size if initial_config is not None else 0
+        self._receive_buffer_bytes = (
+            initial_config.receive_buffer_bytes
+            if initial_config is not None
+            else DEFAULT_RECEIVE_BUFFER_BYTES
+        )
+        self._session_manager.set_receive_buffer_bytes(self._receive_buffer_bytes)
         self._sidebar_visible = initial_config.sidebar_visible if initial_config else True
         self._sidebar_width = (
             initial_config.sidebar_width if initial_config else _SIDEBAR_DEFAULT_WIDTH
@@ -137,6 +144,7 @@ class MainWindow(QMainWindow):
             self.tabs,
             theme=self._theme,
             data_font_size=self._data_font_size,
+            receive_buffer_bytes=self._receive_buffer_bytes,
             window_buttons=self.window_buttons,
             callbacks=MainActionCallbacks(
                 new_session=self._new_session,
@@ -148,6 +156,7 @@ class MainWindow(QMainWindow):
                 show_about=self._show_about,
                 font_size_changed=self._font_size_changed,
                 theme_changed=self._theme_changed,
+                receive_buffer_changed=self._receive_buffer_changed,
             ),
         )
         self.main_menu = actions.main_menu
@@ -163,6 +172,8 @@ class MainWindow(QMainWindow):
         self.tab_bar.new_tab_requested.connect(self._new_session)
         self.font_menu = actions.font_menu
         self.font_size_actions = actions.font_size_actions
+        self.receive_buffer_menu = actions.receive_buffer_menu
+        self.receive_buffer_actions = actions.receive_buffer_actions
         self.font_zoom_in_action = actions.font_zoom_in_action
         self.font_zoom_out_action = actions.font_zoom_out_action
         self.font_reset_action = actions.font_reset_action
@@ -483,6 +494,16 @@ class MainWindow(QMainWindow):
         apply_data_font_size(self.tabs, size)
         self._schedule_save()
 
+    def _receive_buffer_changed(self, size: int) -> None:
+        """“接收缓存”子菜单档位勾选后调整全部会话并保存。"""
+        try:
+            self._session_manager.set_receive_buffer_bytes(size)
+        except DomainError as exc:
+            QMessageBox.warning(self, "接收缓存设置失败", exc.message)
+            return
+        self._receive_buffer_bytes = size
+        self._schedule_save()
+
     def _zoom_font(self, step: int) -> None:
         """按预设档位放大或缩小全局字号，到达边界后保持不变。"""
         self._select_font_size(next_font_size(self._data_font_size, step))
@@ -527,6 +548,7 @@ class MainWindow(QMainWindow):
             sidebar_width=self._sidebar_width,
             content_splitter_state=self._content_splitter_state,
             data_font_size=self._data_font_size,
+            receive_buffer_bytes=self._receive_buffer_bytes,
         )
         if config == self._last_saved:
             return True
