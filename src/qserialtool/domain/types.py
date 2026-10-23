@@ -12,6 +12,7 @@ Parity: TypeAlias = Literal["N", "E", "O", "M", "S"]
 Theme: TypeAlias = Literal["system", "light", "dark"]
 ViewMode: TypeAlias = Literal["split", "terminal"]
 
+CONFIG_SCHEMA_VERSION = 1
 MAX_SEND_HISTORY = 100
 MIN_SIDEBAR_WIDTH = 260
 MAX_SIDEBAR_WIDTH = 480

@@ -35,6 +35,7 @@ from .states import SessionState
 from .terminal import TerminalCell, TerminalScreen
 from .terminal_style import TerminalStyle
 from .types import (
+    CONFIG_SCHEMA_VERSION,
     DEFAULT_LINE_ENDING,
     DisplayMode,
     EncodingName,
@@ -48,6 +49,7 @@ from .types import (
 )
 
 __all__ = [
+    "CONFIG_SCHEMA_VERSION",
     "DEFAULT_LINE_ENDING",
     "DEFAULT_MAX_BYTES",
     "DEFAULT_MAX_RECORDS",

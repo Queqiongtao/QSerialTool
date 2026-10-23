@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from qserialtool.domain import (
+    CONFIG_SCHEMA_VERSION,
     DEFAULT_LINE_ENDING,
     AppConfig,
     ConfigIOError,
@@ -18,7 +19,7 @@ from qserialtool.domain import (
     ValidationError,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = CONFIG_SCHEMA_VERSION
 
 
 def default_data_directory() -> Path:

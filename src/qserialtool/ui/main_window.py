@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from qserialtool import __version__
 from qserialtool.application import MAX_SESSION_TITLE_LENGTH, SessionManager
 from qserialtool.domain import (
+    CONFIG_SCHEMA_VERSION,
     AppConfig,
     ConfigIOError,
     ConfigStore,
@@ -516,7 +517,7 @@ class MainWindow(QMainWindow):
             if isinstance(widget, SessionTab):
                 preferences.append(widget.to_preferences())
         config = AppConfig(
-            schema_version=1,
+            schema_version=CONFIG_SCHEMA_VERSION,
             theme=self._theme,
             window_geometry=bytes(self.saveGeometry().toBase64()).decode("ascii"),
             window_state=bytes(self.saveState().toBase64()).decode("ascii"),

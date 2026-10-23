@@ -150,7 +150,7 @@ class SessionController(WorkerEventHandler):
         return self._log.directory
 
     @property
-    def log_path(self) -> object | None:
+    def log_path(self) -> Path | None:
         """返回当前连接正在写入的日志路径。"""
         return self._log.path
 
