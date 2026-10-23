@@ -119,8 +119,8 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - 每个连接创建一个标准库 `threading.Thread`，名称为 `qserialtool-serial-worker`，不是 `QThread`。
 - Worker 默认读取块大小为 `8192` 字节，读取超时 `50 ms`，关闭超时 `1 s`。
 - 发送队列最大 `256` 个写入任务；队列满时抛出 `SendQueueFullError`，不阻塞 UI。
-- Worker 每个 I/O 轮次先清空控制队列与发送队列，再执行一次有界读取：突发写入在同一轮次连续写出，不被读取等待逐条限速；每完成一条写入后查询 `Transport.bytes_available`，若已有待读数据则以零超时读取一块并派发，避免持续发送时接收长期得不到调度。任一写入失败或已收到停止请求时立即结束本批写出。
-- DTR/RTS 使用无界的小型控制队列；队列元素是固定布尔控制命令，不存在用户数据堆积风险。
+- Worker 每个 I/O 轮次先应用最新 DTR/RTS 状态并清空发送队列，再执行一次有界读取：突发写入在同一轮次连续写出，不被读取等待逐条限速；每完成一条写入后查询 `Transport.bytes_available`，若已有待读数据则以零超时读取一块并派发，避免持续发送时接收长期得不到调度。任一写入失败或已收到停止请求时立即结束本批写出。
+- DTR/RTS 只保留最新状态：连续切换合并为一份，由锁保护，不再使用无界控制队列。
 - `SessionController` 和 `SessionManager` 使用 `RLock` 保护共享状态。
 - Worker 通过 `WorkerEventHandler` 回调 controller；UI 由 `QtSessionBridge` 把回调转换为 Qt 信号，并以 queued connection 投递到主线程。
 - 控件不得读取 Worker 内部状态，只能读取 controller 的不可变快照或缓冲副本。

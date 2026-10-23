@@ -116,6 +116,25 @@ def test_worker_reads_writes_line_state_and_stops() -> None:
     assert not transport.is_open
 
 
+def test_worker_coalesces_line_state_updates() -> None:
+    transport = _GatedTransport()
+    worker, handler = _worker(transport)
+    worker.start()
+    assert handler.opened_event.wait(1.0)
+
+    worker.send(b"first")
+    assert transport.first_write_started.wait(1.0)
+    worker.set_line_state(dtr=False, rts=True)
+    worker.set_line_state(dtr=True, rts=False)
+    worker.set_line_state(dtr=False, rts=False)
+    transport.release_first_write.set()
+
+    assert handler.sent_event.wait(1.0)
+    assert _wait_for(lambda: transport.line_states == [(False, False)])
+    worker.request_stop()
+    assert worker.join(1.0)
+
+
 def test_worker_reports_open_failure() -> None:
     transport = FakeTransport(open_error=PortBusyError())
     worker, handler = _worker(transport)

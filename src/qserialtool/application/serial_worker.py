@@ -108,7 +108,8 @@ class SerialWorker:
         self._read_timeout = selected_options.read_timeout
         self._read_chunk_size = selected_options.read_chunk_size
         self._close_timeout = selected_options.close_timeout
-        self._control_queue: Queue[_SetLineStateCommand] = Queue()
+        self._control_lock = Lock()
+        self._pending_line_state: _SetLineStateCommand | None = None
         self._write_queue: Queue[_WriteCommand] = Queue(maxsize=selected_options.write_queue_size)
         self._stop_requested = Event()
         self._start_lock = Lock()
@@ -148,10 +149,11 @@ class SerialWorker:
             raise SendQueueFullError("发送队列已满，请等待当前数据发送完成。") from exc
 
     def set_line_state(self, *, dtr: bool, rts: bool) -> None:
-        """将 DTR/RTS 控制加入控制队列。"""
+        """记录最新 DTR/RTS 状态，连续切换只保留最后一份。"""
         if type(dtr) is not bool or type(rts) is not bool:
             raise ValidationError("DTR 和 RTS 必须是布尔值。")
-        self._control_queue.put(_SetLineStateCommand(dtr=dtr, rts=rts))
+        with self._control_lock:
+            self._pending_line_state = _SetLineStateCommand(dtr=dtr, rts=rts)
 
     def _run(self) -> None:
         transport: Transport | None = None
@@ -196,9 +198,10 @@ class SerialWorker:
 
     def _process_control_commands(self, transport: Transport) -> bool:
         while True:
-            try:
-                command = self._control_queue.get_nowait()
-            except Empty:
+            with self._control_lock:
+                command = self._pending_line_state
+                self._pending_line_state = None
+            if command is None:
                 return True
             try:
                 transport.set_line_state(dtr=command.dtr, rts=command.rts)
