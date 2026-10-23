@@ -29,6 +29,8 @@ def test_log_service_rejects_invalid_configuration() -> None:
         LogService(sink_factory=lambda _: TxtLogSink(), clock=FakeClock(), flush_interval_seconds=0)
     with pytest.raises(LogIOError):
         LogService(sink_factory=lambda _: TxtLogSink(), clock=FakeClock(), flush_bytes=0)
+    with pytest.raises(LogIOError):
+        LogService(sink_factory=lambda _: TxtLogSink(), clock=FakeClock(), max_file_bytes=0)
 
 
 def test_session_controller_writes_automatic_log(tmp_path: Path) -> None:
@@ -94,7 +96,9 @@ class RecordingSink:
         self.flush_error = flush_error
         self.close_error = close_error
         self.path: Path | None = None
+        self.paths: list[Path] = []
         self.records: list[LogRecord] = []
+        self.bytes_written = 0
         self.flush_count = 0
         self.close_count = 0
 
@@ -102,11 +106,14 @@ class RecordingSink:
         if self.open_error is not None:
             raise self.open_error
         self.path = path
+        self.paths.append(path)
+        self.bytes_written = 0
 
     def write(self, record: LogRecord) -> None:
         if self.write_error is not None:
             raise self.write_error
         self.records.append(record)
+        self.bytes_written += len(record.raw)
 
     def flush(self) -> None:
         if self.flush_error is not None:
@@ -130,6 +137,43 @@ def test_log_service_avoids_filename_collisions(tmp_path: Path) -> None:
 
     assert first != second
     assert second.stem.endswith("_1")
+
+
+def test_log_service_rotates_files_when_limit_reached(tmp_path: Path) -> None:
+    sink = RecordingSink()
+    service = LogService(
+        sink_factory=lambda _: sink,
+        clock=FakeClock(),
+        max_file_bytes=5,
+    )
+
+    first = service.start(directory=str(tmp_path), port="COM1", log_format="txt")
+    service.write(_record())
+
+    assert service.path == sink.paths[1]
+    assert service.path != first
+    assert sink.paths[1].stem.endswith("_1")
+
+    service.write(_record())
+    assert sink.paths[2].stem.endswith("_2")
+    service.close()
+
+
+def test_log_service_rotates_real_txt_file(tmp_path: Path) -> None:
+    service = LogService(
+        sink_factory=lambda _: TxtLogSink(),
+        clock=FakeClock(),
+        max_file_bytes=10,
+    )
+
+    first = service.start(directory=str(tmp_path), port="COM1", log_format="txt")
+    service.write(_record())
+
+    assert service.path is not None
+    assert service.path != first
+    assert "hello" in first.read_text(encoding="utf-8")
+    assert service.path.read_text(encoding="utf-8") == ""
+    service.close()
 
 
 def test_log_service_flushes_by_bytes_and_time(tmp_path: Path) -> None:

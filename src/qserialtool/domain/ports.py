@@ -98,6 +98,11 @@ class LogSink(Protocol):
         """写入一条记录。"""
         ...
 
+    @property
+    def bytes_written(self) -> int:
+        """返回当前文件累计写入的字节数，用于按大小轮转。"""
+        ...
+
     def flush(self) -> None:
         """刷新尚未落盘的数据。"""
         ...

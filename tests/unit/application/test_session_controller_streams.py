@@ -85,6 +85,10 @@ class _FailingLogSink:
     def write(self, record: object) -> None:
         raise LogIOError("磁盘已满")
 
+    @property
+    def bytes_written(self) -> int:
+        return 0
+
     def flush(self) -> None:
         return None
 

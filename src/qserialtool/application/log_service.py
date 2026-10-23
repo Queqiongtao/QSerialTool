@@ -9,6 +9,7 @@ from qserialtool.domain import Clock, DomainError, LogFormat, LogIOError, LogRec
 
 DEFAULT_FLUSH_INTERVAL_SECONDS = 1.0
 DEFAULT_FLUSH_BYTES = 256 * 1024
+DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024
 _INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 
 
@@ -35,6 +36,7 @@ class LogService:
         clock: Clock,
         flush_interval_seconds: float = DEFAULT_FLUSH_INTERVAL_SECONDS,
         flush_bytes: int = DEFAULT_FLUSH_BYTES,
+        max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     ) -> None:
         if not callable(sink_factory):
             raise LogIOError("日志输出工厂必须可调用。")
@@ -42,12 +44,19 @@ class LogService:
             raise LogIOError("日志刷新间隔必须大于零。")
         if type(flush_bytes) is not int or flush_bytes <= 0:
             raise LogIOError("日志刷新字节数必须是正整数。")
+        if type(max_file_bytes) is not int or max_file_bytes <= 0:
+            raise LogIOError("单个日志文件上限必须是正整数。")
         self._sink_factory = sink_factory
         self._clock = clock
         self._flush_interval_seconds = flush_interval_seconds
         self._flush_bytes = flush_bytes
+        self._max_file_bytes = max_file_bytes
         self._sink: LogSink | None = None
         self.path: Path | None = None
+        self._directory: Path | None = None
+        self._base_name = ""
+        self._extension = "txt"
+        self._next_part = 1
         self._last_flush = clock.monotonic()
         self._bytes_since_flush = 0
 
@@ -69,11 +78,15 @@ class LogService:
         timestamp = self._clock.now_utc().astimezone().strftime("%Y%m%d_%H%M%S")
         extension = "csv" if log_format == "csv" else "txt"
         base_name = f"QSerialTool_{sanitize_port_name(port)}_{timestamp}"
-        path = selected_directory / f"{base_name}.{extension}"
-        suffix = 1
+        self._directory = selected_directory
+        self._base_name = base_name
+        self._extension = extension
+        part = 1
+        path = self._path_for_part(part)
         while path.exists():
-            path = selected_directory / f"{base_name}_{suffix}.{extension}"
-            suffix += 1
+            part += 1
+            path = self._path_for_part(part)
+        self._next_part = part + 1
         sink = self._sink_factory(log_format)
         try:
             sink.open(path)
@@ -95,6 +108,9 @@ class LogService:
         try:
             sink.write(record)
             self._bytes_since_flush += len(record.raw)
+            if sink.bytes_written >= self._max_file_bytes:
+                self._rotate()
+                return
             elapsed = self._clock.monotonic() - self._last_flush
             if (
                 self._bytes_since_flush >= self._flush_bytes
@@ -144,6 +160,40 @@ class LogService:
                     raise
             except OSError as exc:
                 raise LogIOError(f"日志关闭失败：{exc}") from exc
+
+    def _rotate(self) -> None:
+        """关闭当前文件并打开下一个分片，保持同一 sink 实例。"""
+        sink = self._sink
+        if sink is None:
+            return
+        try:
+            sink.flush()
+            sink.close()
+            path = self._next_path()
+            sink.open(path)
+        except DomainError:
+            self._disable()
+            raise
+        except OSError as exc:
+            self._disable()
+            raise LogIOError(f"日志轮转失败：{exc}") from exc
+        self.path = path
+        self._last_flush = self._clock.monotonic()
+        self._bytes_since_flush = 0
+
+    def _next_path(self) -> Path:
+        while True:
+            path = self._path_for_part(self._next_part)
+            self._next_part += 1
+            if not path.exists():
+                return path
+
+    def _path_for_part(self, part: int) -> Path:
+        directory = self._directory
+        if directory is None:
+            raise LogIOError("日志目录尚未初始化。")
+        suffix = "" if part == 1 else f"_{part - 1}"
+        return directory / f"{self._base_name}{suffix}.{self._extension}"
 
     def _disable(self) -> None:
         sink = self._sink

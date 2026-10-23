@@ -63,6 +63,10 @@ class FakeLogSink:
     def write(self, record: LogRecord) -> None:
         self.record = record
 
+    @property
+    def bytes_written(self) -> int:
+        return 0
+
     def flush(self) -> None:
         self.flushed = True
 

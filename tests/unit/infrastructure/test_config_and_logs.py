@@ -161,7 +161,10 @@ def test_csv_log_sink_writes_expected_fields(tmp_path: Path) -> None:
     sink = CsvLogSink()
     sink.open(path)
     sink.write(record)
+    written = sink.bytes_written
     sink.close()
+    assert written > 0
+    assert sink.bytes_written == written
 
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
@@ -180,7 +183,10 @@ def test_txt_log_sink_writes_readable_line(tmp_path: Path) -> None:
     sink = TxtLogSink()
     sink.open(path)
     sink.write(_record())
+    written = sink.bytes_written
     sink.close()
+    assert written > 0
+    assert sink.bytes_written == written
 
     content = path.read_text(encoding="utf-8")
     assert "RX" in content
