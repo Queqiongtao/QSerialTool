@@ -110,6 +110,15 @@ class SerialTransport:
             raise TransportIOError("串口读取结果必须是 bytes。")
         return data
 
+    @property
+    def bytes_available(self) -> int:
+        """返回 pyserial 接收缓冲区中的待读字节数。"""
+        serial_port = self._require_open_port()
+        try:
+            return int(serial_port.in_waiting)
+        except (serial.SerialException, OSError, ValueError) as exc:
+            raise _map_serial_error(exc) from exc
+
     def write_all(self, data: bytes, timeout: float) -> None:
         """循环写入直到全部发送成功或超时。"""
         serial_port = self._require_open_port()

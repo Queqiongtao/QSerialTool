@@ -423,6 +423,8 @@ class Transport(Protocol):
     def open(self, config: SerialConfig) -> None: ...
     def close(self, timeout: float) -> None: ...
     def read(self, max_bytes: int, timeout: float) -> bytes: ...
+    @property
+    def bytes_available(self) -> int: ...
     def write_all(self, data: bytes, timeout: float) -> None: ...
     def set_line_state(self, *, dtr: bool, rts: bool) -> None: ...
     @property
@@ -431,8 +433,9 @@ class Transport(Protocol):
 
 线程约束：
 
-- 除 `is_open` 外，所有方法只能在所属 SerialWorker 线程调用。
+- 除 `is_open` 和 `bytes_available` 外，所有方法只能在所属 SerialWorker 线程调用。
 - `read` 超时返回空字节，不视为错误。
+- `bytes_available` 只查询接收缓冲中的待读字节数，不发起阻塞读取。
 - `write_all` 必须处理部分写入；超时或短写抛出传输错误。
 - 底层异常不得直接泄漏到 UI，必须映射为应用错误。
 
@@ -573,7 +576,7 @@ stateDiagram-v2
 2. 文本模式按当前编码转换；HEX 模式解析字节。
 3. 根据换行策略追加 CR、LF 或 CRLF。
 4. 发送任务进入有界命令队列。
-5. SerialWorker 在一个 I/O 轮次内连续调用 `write_all` 清空发送队列（单任务写入超时 `1 s`），失败即停止本批剩余任务。
+5. SerialWorker 在一个 I/O 轮次内连续调用 `write_all` 清空发送队列（单任务写入超时 `1 s`）；每完成一条写入后若已有待读数据，则以零超时读取一块并派发，再继续下一条；失败即停止本批剩余任务。
 6. 成功后形成 TX LogRecord，写入缓冲和自动日志。
 7. 失败时标记会话错误，停止周期发送，并根据错误决定断开或保留连接。
 8. 发送历史只记录成功入队的原始编辑器内容，最多保留 100 条，连续重复内容合并。
@@ -601,7 +604,7 @@ stateDiagram-v2
 
 - 一个 SessionController 对应一个串口 Worker 线程。
 - Worker 使用命令队列接收 connect、disconnect、write、set_line_state 和 stop。
-- 每个 I/O 轮次先清空控制队列与发送队列，再执行一次有界读取；突发发送在同一轮次连续写出，不被读取等待逐条限速，收到停止请求立即中断本批写出。
+- 每个 I/O 轮次先清空控制队列与发送队列，再执行一次有界读取；突发发送在同一轮次连续写出，不被读取等待逐条限速；每完成一条写入后查询待读字节数，已有数据时以零超时读取，避免接收长期饥饿；收到停止请求立即中断本批写出。
 - Worker 读取循环使用固定最大读取块 8192 字节。
 - UI 事件队列使用背压策略，只保留最新合并批次。
 - 不在 Worker 中创建 Qt Widget；通过线程安全信号发布不可变事件。

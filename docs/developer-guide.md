@@ -82,7 +82,7 @@ bootstrap -> ui -> application -> domain
 
 `domain/ports.py` 定义：
 
-- `Transport`：打开/关闭、读取、完整写入、DTR/RTS 和打开状态。
+- `Transport`：打开/关闭、读取、待读字节数、完整写入、DTR/RTS 和打开状态。
 - `PortScanner`：返回不可变的 `PortInfo` 元组（`device` 设备名 + `description` 友好描述；描述缺失或与设备名重复时为空串）。
 - `Clock`：返回带时区 UTC 时间和单调时钟。
 - `ConfigStore`：加载和保存应用配置。
@@ -119,7 +119,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 - 每个连接创建一个标准库 `threading.Thread`，名称为 `qserialtool-serial-worker`，不是 `QThread`。
 - Worker 默认读取块大小为 `8192` 字节，读取超时 `50 ms`，关闭超时 `1 s`。
 - 发送队列最大 `256` 个写入任务；队列满时抛出 `SendQueueFullError`，不阻塞 UI。
-- Worker 每个 I/O 轮次先清空控制队列与发送队列，再执行一次有界读取：突发写入在同一轮次连续写出，不被读取等待逐条限速；任一写入失败或已收到停止请求时立即结束本批写出。
+- Worker 每个 I/O 轮次先清空控制队列与发送队列，再执行一次有界读取：突发写入在同一轮次连续写出，不被读取等待逐条限速；每完成一条写入后查询 `Transport.bytes_available`，若已有待读数据则以零超时读取一块并派发，避免持续发送时接收长期得不到调度。任一写入失败或已收到停止请求时立即结束本批写出。
 - DTR/RTS 使用无界的小型控制队列；队列元素是固定布尔控制命令，不存在用户数据堆积风险。
 - `SessionController` 和 `SessionManager` 使用 `RLock` 保护共享状态。
 - Worker 通过 `WorkerEventHandler` 回调 controller；UI 由 `QtSessionBridge` 把回调转换为 Qt 信号，并以 queued connection 投递到主线程。
@@ -149,7 +149,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 
 1. UI 将文本编码或解析 HEX，再追加所选 CR/LF；构造出的 payload 为空时不调用 controller，也不弹空数据错误。
 2. controller 要求状态为 `connected`，把非空 `bytes` 放入 Worker 的固定大小写队列。
-3. Worker 在一个 I/O 轮次内连续取出并写出队列中的全部任务（单任务写入超时 `1 s`），然后回到读取；任一任务失败即停止本批写出并上报错误。
+3. Worker 在一个 I/O 轮次内连续取出并写出队列中的全部任务（单任务写入超时 `1 s`）；每完成一条写入后若 `Transport.bytes_available` 非零，则以零超时读取一块并派发，然后继续下一条；队列清空后回到常规读取。任一任务失败即停止本批写出并上报错误。
 4. 成功后创建方向为 `tx` 的 `LogRecord`，进入和接收相同的缓冲、日志和 UI 数据流。
 
 ### 6.4 断开和退出

@@ -26,6 +26,7 @@ class FakeSerial:
         self._rts = True
         self.timeout = 0.0
         self.write_timeout = 0.0
+        self.in_waiting = 0
         self.read_result: bytes | str = b""
         self.write_results: list[int | None] = []
         self.read_error: BaseException | None = None
@@ -148,6 +149,15 @@ def test_read_and_line_state_operations() -> None:
     assert fake_serial.rts is True
 
 
+def test_bytes_available_reports_receive_buffer() -> None:
+    fake_serial = FakeSerial()
+    fake_serial.in_waiting = 5
+    transport = SerialTransport(serial_factory=_factory(fake_serial))
+    transport.open(SerialConfig(port="COM3"))
+
+    assert transport.bytes_available == 5
+
+
 def test_read_validates_arguments_and_result() -> None:
     fake_serial = FakeSerial()
     transport = SerialTransport(serial_factory=_factory(fake_serial))
@@ -203,6 +213,8 @@ def test_operations_require_open_port() -> None:
     transport = SerialTransport(serial_factory=_factory(FakeSerial()))
     with pytest.raises(TransportIOError):
         transport.read(1, timeout=0.1)
+    with pytest.raises(TransportIOError):
+        _ = transport.bytes_available
     with pytest.raises(TransportIOError):
         transport.write_all(b"data", timeout=0.1)
     with pytest.raises(TransportIOError):

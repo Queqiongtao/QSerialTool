@@ -24,6 +24,10 @@ class FakeTransport:
     def read(self, max_bytes: int, timeout: float) -> bytes:
         return b""
 
+    @property
+    def bytes_available(self) -> int:
+        return 0
+
     def write_all(self, data: bytes, timeout: float) -> None:
         self.data = data
 

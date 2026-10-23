@@ -221,10 +221,31 @@ class SerialWorker:
             self._event_handler.on_bytes_sent(command.data)
             if not transport.is_open:
                 return
+            self._read_available_during_burst(transport)
+            if self._stop_requested.is_set():
+                return
 
-    def _read_once(self, transport: Transport) -> None:
+    def _read_available_during_burst(self, transport: Transport) -> None:
+        """连续写入之间机会式读取已到达数据，避免接收长期得不到调度。"""
         try:
-            data = transport.read(self._read_chunk_size, timeout=self._read_timeout)
+            available = transport.bytes_available
+        except DomainError as exc:
+            self._event_handler.on_io_error(exc)
+            self._stop_requested.set()
+            return
+        except Exception as exc:
+            self._event_handler.on_io_error(
+                InternalError(f"查询串口接收缓冲时发生未预期错误：{exc}")
+            )
+            self._stop_requested.set()
+            return
+        if available > 0:
+            self._read_once(transport, timeout=0.0)
+
+    def _read_once(self, transport: Transport, *, timeout: float | None = None) -> None:
+        read_timeout = self._read_timeout if timeout is None else timeout
+        try:
+            data = transport.read(self._read_chunk_size, timeout=read_timeout)
         except DomainError as exc:
             self._event_handler.on_io_error(exc)
             self._stop_requested.set()

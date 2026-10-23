@@ -32,6 +32,11 @@ class Transport(Protocol):
         """读取最多 max_bytes 个字节，超时返回空字节。"""
         ...
 
+    @property
+    def bytes_available(self) -> int:
+        """返回接收缓冲区中尚未读取的字节数，不发起阻塞读取。"""
+        ...
+
     def write_all(self, data: bytes, timeout: float) -> None:
         """完整写入数据，失败时抛出传输错误。"""
         ...

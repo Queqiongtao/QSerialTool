@@ -109,6 +109,11 @@ class FakeTransport:
         self.receive_event.set()
         return data[:max_bytes]
 
+    @property
+    def bytes_available(self) -> int:
+        with self._condition:
+            return sum(len(item) for item in self._reads)
+
     def write_all(self, data: bytes, timeout: float) -> None:
         if self.write_error is not None and (
             self.write_error_after is None or len(self.writes) >= self.write_error_after

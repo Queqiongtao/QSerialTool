@@ -47,6 +47,18 @@ class _GatedTransport(FakeTransport):
         return super().read(max_bytes, timeout=timeout)
 
 
+class _FailingAvailabilityTransport(FakeTransport):
+    """查询待读字节数时抛出指定异常。"""
+
+    def __init__(self, error: BaseException) -> None:
+        super().__init__()
+        self._availability_error = error
+
+    @property
+    def bytes_available(self) -> int:
+        raise self._availability_error
+
+
 def _wait_for(predicate: Callable[[], bool], timeout: float = 2.0) -> bool:
     deadline = monotonic() + timeout
     while monotonic() < deadline:
@@ -343,6 +355,49 @@ def test_worker_drains_queued_writes_in_one_cycle() -> None:
     # 首条写入之后再无读取插入，说明整批在同一个 I/O 轮次里连续写出。
     start = transport.trace.index("write")
     assert transport.trace[start : start + len(payloads)] == ["write"] * len(payloads)
+
+
+def test_worker_reads_pending_data_during_write_burst() -> None:
+    transport = _GatedTransport()
+    worker, handler = _worker(transport)
+    worker.start()
+    assert handler.opened_event.wait(1.0)
+
+    worker.send(b"first")
+    assert transport.first_write_started.wait(1.0)
+    transport.push_read(b"during-burst")
+    worker.send(b"second")
+    transport.release_first_write.set()
+
+    assert handler.received_event.wait(1.0)
+    assert handler.received == [b"during-burst"]
+    assert _wait_for(lambda: handler.sent == [b"first", b"second"])
+
+    worker.request_stop()
+    assert worker.join(1.0)
+
+    first_write = transport.trace.index("write")
+    drain_read = transport.trace.index("read", first_write)
+    second_write = transport.trace.index("write", drain_read)
+    assert first_write < drain_read < second_write
+
+
+@pytest.mark.parametrize(
+    "error",
+    [TransportIOError("availability failed"), RuntimeError("availability failed")],
+)
+def test_worker_reports_availability_failures(error: BaseException) -> None:
+    transport = _FailingAvailabilityTransport(error)
+    worker, handler = _worker(transport)
+    worker.start()
+    assert handler.opened_event.wait(1.0)
+
+    worker.send(b"data")
+
+    assert handler.io_error_event.wait(1.0)
+    assert handler.stopped_event.wait(1.0)
+    assert worker.join(1.0)
+    assert isinstance(handler.io_errors[0], TransportIOError | InternalError)
 
 
 def test_worker_stop_interrupts_queued_writes() -> None:
