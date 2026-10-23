@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from .codecs import decode_text, format_hex, is_canonical_hex_text
+from .codecs import decode_text, format_hex
 from .errors import UserFacingError, ValidationError
 from .states import SessionState
 from .types import (
@@ -103,8 +103,9 @@ class SerialConfig:
 class LogRecord:
     """一条不可变的串口数据或系统事件记录。
 
-    ``hex_text`` 必须由 ``raw`` 派生；``text`` 通常也是，但跨块解码时它可能
-    包含由上一块未完成字节补全的字符，因此不再逐条重算校验。
+    ``text`` 通常也由 ``raw`` 派生，但跨块解码时它可能包含由上一块未完成字节
+    补全的字符，因此需要随记录保存。``hex_text`` 始终可由 ``raw`` 完整派生，
+    改为按需计算的只读属性，避免每条记录常驻约 3 倍原始字节的 HEX 文本。
     """
 
     timestamp_utc: datetime
@@ -112,7 +113,6 @@ class LogRecord:
     raw: bytes
     encoding: EncodingName
     text: str
-    hex_text: str
     session_id: str
 
     def __post_init__(self) -> None:
@@ -126,8 +126,11 @@ class LogRecord:
             raise ValidationError("日志编码不受支持。")
         _require_string(self.session_id, "会话 ID")
         _require_string(self.text, "日志文本", allow_empty=True)
-        if not is_canonical_hex_text(self.hex_text, self.raw):
-            raise ValidationError("HEX 文本必须由原始字节派生。")
+
+    @property
+    def hex_text(self) -> str:
+        """按需返回由原始字节派生的大写、空格分隔 HEX 文本。"""
+        return format_hex(self.raw)
 
     @classmethod
     def from_bytes(  # noqa: PLR0913
@@ -147,7 +150,6 @@ class LogRecord:
             raw=raw,
             encoding=encoding,
             text=decode_text(raw, encoding) if text is None else text,
-            hex_text=format_hex(raw),
             session_id=session_id,
         )
 

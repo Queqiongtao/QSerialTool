@@ -446,7 +446,6 @@ class LogRecord:
     raw: bytes
     encoding: str
     text: str
-    hex_text: str
     session_id: str
 ```
 
@@ -454,7 +453,7 @@ class LogRecord:
 
 - `timestamp_utc` 使用带时区的 UTC 时间，展示和导出再转换成本地时区。
 - `raw` 是唯一权威数据源。
-- 文本和 HEX 字段是派生表示，不得反向修改原始数据。
+- 文本和 HEX 是派生表示，不得反向修改原始数据；`hex_text` 作为按需计算的只读属性，不作为记录常驻字段。
 - `system` 记录可用于自动日志说明连接、断开和错误，但不参与接收显示过滤统计。
 
 ### 7.5 `SessionSnapshot`
