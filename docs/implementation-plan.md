@@ -835,7 +835,7 @@ TXT 是人工阅读格式，允许显示转义后的文本；需要无损数据�
 ### 14.4 自动日志
 
 - 默认关闭。
-- 启用时让用户选择目录；默认建议用户文档目录下的 `QSerialTool/Logs`。
+- 启用时让用户选择目录；Windows 默认建议用户文档目录下的 `QSerialTool/Logs`，Linux 默认使用 `${XDG_DATA_HOME:-$HOME/.local/share}/QSerialTool/Logs`。
 - 文件名：`QSerialTool_<sanitized-port>_<YYYYMMDD_HHmmss>.<ext>`。
 - 端口名清理 Windows/Linux 非法字符并限制长度。
 - 每个标签每次连接创建新文件；不跨连接追加。

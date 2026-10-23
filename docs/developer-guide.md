@@ -184,7 +184,7 @@ disconnected -> connecting -> connected -> disconnecting -> disconnected
 
 `LogService` 管理单个会话的连接期日志：
 
-- 默认目录是 `~/Documents/QSerialTool/Logs`，可由用户覆盖。
+- 默认目录 Windows 为 `~/Documents/QSerialTool/Logs`；Linux 等平台为 `${XDG_DATA_HOME:-$HOME/.local/share}/QSerialTool/Logs`，可由用户覆盖。
 - 连接成功时创建文件，断开时刷新并关闭。
 - 文件名为 `QSerialTool_<清理后的端口>_YYYYMMDD_HHMMSS.<csv|txt>`；同名时追加数字后缀。
 - 单个文件默认达到 `64 MiB` 后轮转：刷新并关闭当前文件，再用同一 sink 打开下一个分片，文件名依次追加 `_1`、`_2`；旧分片不会自动删除。`LogSink.bytes_written` 提供当前文件累计字节数，CSV 含表头。

@@ -1,6 +1,8 @@
 """自动日志文件生命周期和写入策略。"""
 
+import os
 import re
+import sys
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
@@ -14,8 +16,20 @@ _INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 
 
 def default_log_directory() -> Path:
-    """返回跨平台默认日志目录。"""
-    return Path.home() / "Documents" / "QSerialTool" / "Logs"
+    """返回跨平台默认日志目录。
+
+    Windows 沿用用户文档目录；Linux 等平台使用 XDG 数据目录，避免依赖
+    可能被本地化重命名的 ``~/Documents``。
+    """
+    if sys.platform.startswith("win"):
+        return Path.home() / "Documents" / "QSerialTool" / "Logs"
+    data_home = os.environ.get("XDG_DATA_HOME")
+    root = (
+        Path(data_home)
+        if data_home and Path(data_home).is_absolute()
+        else Path.home() / ".local" / "share"
+    )
+    return root / "QSerialTool" / "Logs"
 
 
 def sanitize_port_name(port: str, *, max_length: int = 48) -> str:

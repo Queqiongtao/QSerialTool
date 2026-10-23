@@ -171,7 +171,7 @@ HEX 数据必须由完整字节组成；奇数长度或包含非法字符时会�
 ### 6.1 自动日志
 
 - 可选择 `CSV` 或 `TXT`。
-- 默认目录是当前用户主目录下的 `Documents/QSerialTool/Logs`，也可以手动选择其他目录。
+- 默认目录：Windows 为 `文档\QSerialTool\Logs`；Linux 为 `${XDG_DATA_HOME:-$HOME/.local/share}/QSerialTool/Logs`。也可以手动选择其他目录。
 - 每次成功建立连接后创建新文件；断开时刷新并关闭。
 - 文件名格式为 `QSerialTool_端口名_YYYYMMDD_HHMMSS.扩展名`。端口名中的非法文件名字符会替换为下划线，重名时追加序号。
 - 单个日志文件达到 `64 MiB` 后自动切换到下一个分片，文件名依次追加 `_1`、`_2`；不会删除旧分片，请自行清理磁盘。

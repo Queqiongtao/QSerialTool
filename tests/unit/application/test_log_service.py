@@ -6,9 +6,41 @@ from pathlib import Path
 import pytest
 from tests.fixtures.fakes import FakeClock, FakeTransport
 
-from qserialtool.application import LogService, SessionController, SessionControllerOptions
+from qserialtool.application import (
+    LogService,
+    SessionController,
+    SessionControllerOptions,
+    default_log_directory,
+)
 from qserialtool.domain import LogIOError, LogRecord, SerialConfig
 from qserialtool.infrastructure import TxtLogSink
+
+
+def test_default_log_directory_uses_xdg_data_home_on_linux(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("qserialtool.application.log_service.sys.platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    assert default_log_directory() == tmp_path / "QSerialTool" / "Logs"
+
+
+def test_default_log_directory_falls_back_to_local_share(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("qserialtool.application.log_service.sys.platform", "linux")
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+    assert default_log_directory() == Path.home() / ".local" / "share" / "QSerialTool" / "Logs"
+
+
+def test_default_log_directory_keeps_documents_on_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("qserialtool.application.log_service.sys.platform", "win32")
+
+    assert default_log_directory() == Path.home() / "Documents" / "QSerialTool" / "Logs"
 
 
 def test_log_service_creates_file_and_flushes_on_close(tmp_path: Path) -> None:
