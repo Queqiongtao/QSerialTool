@@ -16,6 +16,8 @@ from qserialtool.ui.theme_manager import data_colors
 def _output(qtbot: object) -> TerminalOutput:
     output = TerminalOutput()
     qtbot.addWidget(output)
+    # 这些用例验证草稿与块状光标，输入方式固定为行缓冲。
+    output.set_input_mode("line")
     output.set_terminal_mode(True)
     return output
 

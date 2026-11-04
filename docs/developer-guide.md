@@ -67,7 +67,7 @@ bootstrap -> ui -> application -> domain
 - `SessionPreferences.highlight_enabled` 保存终端视图高亮开关，默认 `True`；旧配置缺少该字段时按开启迁移。
 - `SessionPreferences.wrap_enabled` 保存接收区自动换行开关，默认 `True`；旧配置缺少该字段时按开启迁移。
 - `SessionPreferences.terminal_timestamp` 保存终端视图行时间戳开关，默认 `False`；旧配置缺少该字段时按关闭迁移。
-- `SessionPreferences.terminal_input_mode` 保存终端输入方式，`line` 为本地行缓冲、`raw` 为逐键发送，默认 `line`；旧配置缺少该字段时按行缓冲迁移，逐键模式与 HEX 格式互斥。
+- `SessionPreferences.terminal_input_mode` 保存终端输入方式，`line` 为本地行缓冲、`raw` 为逐键发送，默认 `raw`；旧配置缺少该字段时按逐键发送迁移，显式保存的 `line` 保持不变。逐键模式按文本编码发送并忽略发送格式，终端“格式”菜单固定显示文本且禁用；HEX 仍可用于行缓冲和分栏视图，切换终端输入方式不会覆盖分栏保存的 HEX 设置。
 
 ### 3.3 终端模型
 

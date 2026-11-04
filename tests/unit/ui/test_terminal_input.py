@@ -19,6 +19,7 @@ def test_terminal_inline_input_sends_lines_and_recalls_history(qtbot: object) ->
         connect_session(qtbot, tab)
         assert tab.send_panel.line_ending == DEFAULT_LINE_ENDING
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
 
@@ -61,6 +62,7 @@ def test_terminal_input_continues_after_received_device_prompt(qtbot: object) ->
     try:
         connect_session(qtbot, tab)
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
 
@@ -98,6 +100,7 @@ def test_terminal_empty_enter_without_newline_is_noop(
         connect_session(qtbot, tab)
         tab.send_panel.set_line_ending("none")
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
 
@@ -128,6 +131,7 @@ def test_terminal_paste_sends_non_empty_lines(qtbot: object) -> None:
         connect_session(qtbot, tab)
         tab.send_panel.set_line_ending("lf")
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
         QApplication.clipboard().setText("one\r\ntwo\n\nthree")
@@ -158,6 +162,7 @@ def test_terminal_invalid_hex_keeps_draft(
         tab.send_panel.set_send_mode("hex")
         tab.send_panel.set_line_ending("lf")
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         warnings: list[str] = []
         monkeypatch.setattr(
@@ -185,6 +190,7 @@ def test_terminal_receive_text_cannot_be_edited(qtbot: object) -> None:
     try:
         connect_session(qtbot, tab)
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
         transport.push_read(b"hello world")
@@ -235,6 +241,7 @@ def test_terminal_paste_lands_in_draft_not_log_text(qtbot: object) -> None:
     try:
         connect_session(qtbot, tab)
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
         transport.push_read(b"hello world")
@@ -260,6 +267,7 @@ def test_terminal_arrows_pass_through_to_device(qtbot: object) -> None:
     try:
         connect_session(qtbot, tab)
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
 

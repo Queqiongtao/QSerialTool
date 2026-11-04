@@ -272,8 +272,8 @@ def test_session_preferences_defaults_terminal_timestamp() -> None:
 
 
 def test_session_preferences_defaults_terminal_input_mode() -> None:
-    assert _preferences().terminal_input_mode == "line"
-    assert _preferences(terminal_input_mode="raw").terminal_input_mode == "raw"
+    assert _preferences().terminal_input_mode == "raw"
+    assert _preferences(terminal_input_mode="line").terminal_input_mode == "line"
 
     for value in ("invalid", 1, None):
         with pytest.raises(ValidationError):

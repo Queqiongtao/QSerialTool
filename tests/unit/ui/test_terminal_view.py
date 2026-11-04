@@ -42,9 +42,10 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
             (tab.receive_panel.terminal_timestamp_check, True),
         )
     )
-    assert splitter.handleWidth() == 0
-    assert not splitter.handle(1).isEnabled()
+    assert splitter.handleWidth() == 0 and not splitter.handle(1).isEnabled()
     assert tab.layout_state()[2] == split_state
+    # 该用例验证行缓冲的草稿与 HEX 设置；终端默认已改为逐键发送。
+    tab._set_terminal_input_mode("line")
     tab.receive_panel.set_terminal_draft("draft")
     assert tab.receive_panel.output.toPlainText() == "draft"
 
@@ -95,76 +96,43 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     window.close()
 
 
-def test_terminal_input_mode_menu_persists_and_restores(qtbot: object) -> None:
+def test_terminal_input_mode_menu_defaults_raw_and_persists(qtbot: object) -> None:
     transport = FakeTransport()
     store = RecordingStore()
     window = build_window_with_store(qtbot, transport, store)
     tab = current_tab(window)
 
     qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
+    assert tab.receive_panel.terminal_input_mode == "raw"
+    assert tab.send_settings_button._input_actions["raw"].isChecked()
+    assert not tab.send_settings_button.format_menu.isEnabled()
+
+    tab.send_settings_button._input_actions["line"].trigger()
+
     assert tab.receive_panel.terminal_input_mode == "line"
     assert tab.send_settings_button._input_actions["line"].isChecked()
     assert tab.send_settings_button.format_menu.isEnabled()
+
+    tab.send_settings_button._format_actions["hex"].trigger()
+    assert tab.send_panel.send_mode == "hex"
 
     tab.send_settings_button._input_actions["raw"].trigger()
 
     assert tab.receive_panel.terminal_input_mode == "raw"
     assert tab.to_preferences().terminal_input_mode == "raw"
+    assert tab.to_preferences().send_mode == "hex"
     assert tab.send_settings_button._input_actions["raw"].isChecked()
     assert not tab.send_settings_button.format_menu.isEnabled()
-    assert tab.send_panel.send_mode == "text"
-    tab._set_terminal_send_mode("hex")
-    assert tab.send_panel.send_mode == "text"
+    # 逐键模式只把菜单显示为文本，不覆盖分栏视图保存的 HEX 设置。
+    assert tab.send_settings_button._format_actions["text"].isChecked()
+    assert tab.send_panel.send_mode == "hex"
 
     window._save_timer.stop()
     window._save_config()
     assert store.saves[-1].sessions[0].terminal_input_mode == "raw"
+    assert store.saves[-1].sessions[0].send_mode == "hex"
     window.close()
 
-    manager = SessionManager(
-        transport_factory=FakeTransport,
-        clock=FakeClock(),
-    )
-    preferences = SessionPreferences(
-        title="terminal",
-        config=SerialConfig(port=""),
-        display_mode="text",
-        show_timestamp=True,
-        show_rx=True,
-        show_tx=True,
-        autoscroll=True,
-        view_mode="terminal",
-        terminal_input_mode="raw",
-    )
-    config = AppConfig(
-        schema_version=1,
-        theme="system",
-        window_geometry=None,
-        window_state=None,
-        active_session_index=0,
-        sessions=(preferences,),
-    )
-    restored_window = MainWindow(
-        session_manager=manager,
-        port_provider=lambda: (PortInfo(device="COM1"),),
-        initial_config=config,
-    )
-    qtbot.addWidget(restored_window)
-    restored_window.show()
-    restored_tab = current_tab(restored_window)
-
-    try:
-        assert restored_tab.receive_panel.terminal_input_mode == "raw"
-        assert restored_tab.send_settings_button._input_actions["raw"].isChecked()
-        assert not restored_tab.send_settings_button.format_menu.isEnabled()
-        assert restored_tab.send_panel.send_mode == "text"
-    finally:
-        restored_window.close()
-
-
-def test_raw_input_mode_forces_text_format_when_loading_hex_preferences(
-    qtbot: object,
-) -> None:
     manager = SessionManager(
         transport_factory=FakeTransport,
         clock=FakeClock(),
@@ -189,6 +157,49 @@ def test_raw_input_mode_forces_text_format_when_loading_hex_preferences(
         active_session_index=0,
         sessions=(preferences,),
     )
+    restored_window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        initial_config=config,
+    )
+    qtbot.addWidget(restored_window)
+    restored_window.show()
+    restored_tab = current_tab(restored_window)
+
+    try:
+        assert restored_tab.receive_panel.terminal_input_mode == "raw"
+        assert restored_tab.send_settings_button._input_actions["raw"].isChecked()
+        assert not restored_tab.send_settings_button.format_menu.isEnabled()
+        assert restored_tab.send_panel.send_mode == "hex"
+        assert restored_tab.send_settings_button._format_actions["text"].isChecked()
+    finally:
+        restored_window.close()
+
+
+def test_raw_input_mode_keeps_hex_format_for_split_view(qtbot: object) -> None:
+    manager = SessionManager(
+        transport_factory=FakeTransport,
+        clock=FakeClock(),
+    )
+    preferences = SessionPreferences(
+        title="split",
+        config=SerialConfig(port=""),
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+        send_mode="hex",
+        view_mode="split",
+    )
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(preferences,),
+    )
     window = MainWindow(
         session_manager=manager,
         port_provider=lambda: (PortInfo(device="COM1"),),
@@ -200,8 +211,17 @@ def test_raw_input_mode_forces_text_format_when_loading_hex_preferences(
 
     try:
         assert tab.receive_panel.terminal_input_mode == "raw"
-        assert tab.send_panel.send_mode == "text"
-        assert tab.send_settings_button.format_menu.isEnabled() is False
+        assert tab.send_panel.send_mode == "hex"
+        assert tab.send_settings_button._format_actions["text"].isChecked()
+
+        tab.set_view_mode("terminal", persist=False)
+        assert tab.receive_panel.terminal_input_mode == "raw"
+        assert tab.send_panel.send_mode == "hex"
+        assert not tab.send_settings_button.format_menu.isEnabled()
+
+        tab.send_settings_button._input_actions["line"].trigger()
+        assert tab.send_settings_button.format_menu.isEnabled()
+        assert tab.send_settings_button._format_actions["hex"].isChecked()
     finally:
         window.close()
 

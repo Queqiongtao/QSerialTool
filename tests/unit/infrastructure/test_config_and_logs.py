@@ -116,6 +116,19 @@ def test_json_config_defaults_terminal_input_mode_for_legacy_files(tmp_path: Pat
     loaded = store.load()
 
     assert loaded is not None
+    assert loaded.sessions[0].terminal_input_mode == "raw"
+
+
+def test_json_config_keeps_explicit_line_terminal_input_mode(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    payload["sessions"][0]["terminal_input_mode"] = "line"
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
     assert loaded.sessions[0].terminal_input_mode == "line"
 
 

@@ -89,13 +89,6 @@ class SessionTab(QWidget):
         preferences: SessionPreferences | None,
     ) -> None:
         self._build_panels(port_provider, preferences)
-        if (
-            preferences is not None
-            and preferences.terminal_input_mode == "raw"
-            and self.send_panel.send_mode == "hex"
-        ):
-            # 逐键模式按文本编码发送，HEX 只对行缓冲有意义。
-            self.send_panel.set_send_mode("text")
         self._font_zoom_filter = FontZoomFilter(self)
         self._font_zoom_filter.zoom_requested.connect(self.font_zoom_requested.emit)
         self.receive_panel.output.viewport().installEventFilter(self._font_zoom_filter)
@@ -148,11 +141,9 @@ class SessionTab(QWidget):
         )
 
     def _set_terminal_input_mode(self, mode: TerminalInputMode) -> None:
-        """切换终端输入方式；逐键模式强制文本编码。"""
+        """切换终端输入方式；逐键模式忽略分栏视图的 HEX 发送格式。"""
         if mode not in {"line", "raw"}:
             return
-        if mode == "raw" and self.send_panel.send_mode == "hex":
-            self.send_panel.set_send_mode("text")
         self.receive_panel.set_terminal_input_mode(mode)
         self._sync_terminal_send_menu()
         self.preferences_changed.emit()

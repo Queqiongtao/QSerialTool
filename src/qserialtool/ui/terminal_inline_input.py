@@ -31,7 +31,7 @@ class TerminalInlineInput:
         self._after_edit = after_edit
         self._is_ready = is_ready
         self._enabled = False
-        self._mode: TerminalInputMode = "line"
+        self._mode: TerminalInputMode = "raw"
         self._draft = ""
         self._input_start_position = 0
         self._cursor_block_number = 0

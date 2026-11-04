@@ -49,7 +49,7 @@ class TerminalSendMenu(QToolButton):
 
         self._format_actions: dict[DisplayMode, QAction] = {}
         self.format_menu = menu.addMenu("格式")
-        self.format_menu.setToolTip("逐键模式按文本编码发送，HEX 仅用于行缓冲")
+        self.format_menu.setToolTip("逐键模式按文本编码发送，HEX 仅用于行缓冲和分栏视图")
         format_group = QActionGroup(self)
         format_group.setExclusive(True)
         for label, value in (("文本", "text"), ("HEX", "hex")):
@@ -92,11 +92,16 @@ class TerminalSendMenu(QToolButton):
         line_ending: LineEnding,
         history: tuple[str, ...],
     ) -> None:
-        """让菜单反映当前输入方式、发送偏好与发送历史。"""
+        """让菜单反映当前输入方式、发送偏好与发送历史。
+
+        逐键模式按文本发送，格式菜单固定显示“文本”并禁用；这里只影响菜单
+        显示，不改写分栏视图保存的 HEX 发送格式。
+        """
         for value, action in self._input_actions.items():
             action.setChecked(value == input_mode)
+        effective_send_mode = "text" if input_mode == "raw" else send_mode
         for value, action in self._format_actions.items():
-            action.setChecked(value == send_mode)
+            action.setChecked(value == effective_send_mode)
         self.format_menu.setEnabled(input_mode == "line")
         for value, action in self._newline_actions.items():
             action.setChecked(value == line_ending)

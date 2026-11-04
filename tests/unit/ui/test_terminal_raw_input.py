@@ -270,6 +270,30 @@ def test_switching_between_line_and_raw_discards_local_draft(qtbot: object) -> N
         window.close()
 
 
+def test_raw_mode_ignores_hex_format_and_sends_text(
+    qtbot: object,
+    monkeypatch: object,
+) -> None:
+    transport = FakeTransport()
+    window, tab = _raw_terminal(qtbot, transport)
+    warnings: list[str] = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: warnings.append(args[2]))
+
+    try:
+        tab.send_panel.set_send_mode("hex")
+        output = tab.receive_panel.output
+        output.setFocus()
+
+        QTest.keyClick(output, Qt.Key.Key_A)
+
+        qtbot.waitUntil(lambda: transport.writes == [b"a"], timeout=2000)
+        assert warnings == []
+        assert tab.send_panel.send_mode == "hex"
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_raw_mode_history_menu_sends_selected_line(qtbot: object) -> None:
     transport = FakeTransport()
     window = build_window(qtbot, transport)
@@ -279,6 +303,7 @@ def test_raw_mode_history_menu_sends_selected_line(qtbot: object) -> None:
         connect_session(qtbot, tab)
         tab.send_panel.set_line_ending("lf")
         tab.set_view_mode("terminal", persist=False)
+        tab.receive_panel.set_terminal_input_mode("line")
         output = tab.receive_panel.output
         output.setFocus()
 

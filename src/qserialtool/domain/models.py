@@ -213,7 +213,7 @@ class SessionPreferences:
     highlight_enabled: bool = True
     wrap_enabled: bool = True
     terminal_timestamp: bool = False
-    terminal_input_mode: TerminalInputMode = "line"
+    terminal_input_mode: TerminalInputMode = "raw"
 
     def __post_init__(self) -> None:
         _require_string(self.title, "标签标题")
