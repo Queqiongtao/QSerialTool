@@ -386,6 +386,14 @@ def test_sidebar_content_stays_top_aligned(qtbot: object) -> None:
 
     try:
         window.resize(1180, 760)
+        # 侧栏高度受平台字体度量影响（例如中文字体的行高更大），按内容实际高度
+        # 放大窗口后再验证顶部对齐，避免把可滚动侧栏误判为布局回归。
+        for _ in range(5):
+            if tab.sidebar.verticalScrollBar().maximum() == 0:
+                break
+            shortfall = tab.sidebar_content.sizeHint().height() - tab.sidebar.viewport().height()
+            window.resize(1180, window.height() + max(shortfall, 1))
+            qtbot.wait(50)
         qtbot.waitUntil(lambda: tab.sidebar.verticalScrollBar().maximum() == 0, timeout=2000)
 
         layout = tab.sidebar_content.layout()

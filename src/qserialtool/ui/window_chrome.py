@@ -15,8 +15,10 @@ Windows 下去掉系统标题栏（``WS_CAPTION``）但保留可缩放边框（`
   (SW_HIDE)``，抵消部分启动路径下系统把主窗口按默认尺寸提前显示约一秒的
   问题，第一个可见帧由应用自己的 ``show()`` 决定。
 
-原生钩子只在 Windows 桌面平台生效；离屏平台与其它系统回退系统标题栏，测试环境
-仍能看到窗口按钮控件树。
+原生钩子只在 Windows 桌面平台生效；Linux 的 ``xcb``/``wayland`` 会话改用
+``FramelessWindowHint`` 去装饰并自行处理拖动、双击最大化、边缘缩放与右键
+窗口菜单，达到与 Windows 相同的单行标题行；离屏平台走普通窗口路径，
+测试环境仍能看到控件树。
 """
 
 from __future__ import annotations
@@ -25,8 +27,16 @@ import ctypes
 import sys
 from functools import lru_cache
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QSize
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QTabBar, QToolButton, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt
+from PySide6.QtGui import QContextMenuEvent, QCursor, QMouseEvent
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QMenu,
+    QTabBar,
+    QToolButton,
+    QWidget,
+)
 
 from qserialtool.ui.icons import svg_icon
 from qserialtool.ui.style_sheet import tokens
@@ -148,19 +158,38 @@ def _api() -> _Api:
 
 
 def is_windows() -> bool:
-    """是否运行在 Windows（决定是否装配窗口按钮）。"""
+    """是否运行在 Windows（决定是否使用 WinAPI 原生钩子）。"""
     return _WINDOWS
 
 
+def _platform_name() -> str:
+    """返回 Qt 平台插件名；没有 QApplication 时返回空字符串。"""
+    app = QApplication.instance()
+    return app.platformName() if app is not None else ""
+
+
 def uses_native_chrome() -> bool:
-    """是否启用原生自定义标题栏钩子。
+    """是否启用 Windows 原生自定义标题栏钩子。
 
     离屏平台没有真实窗口消息，跳过原生处理，测试仍能检查完整控件树。
     """
     if not _WINDOWS:
         return False
-    app = QApplication.instance()
-    return app is None or app.platformName() != "offscreen"
+    return _platform_name() != "offscreen"
+
+
+def uses_custom_title_bar() -> bool:
+    """是否使用应用自绘标题行（标签行兼作标题栏并装配窗口按钮）。
+
+    Windows 桌面与 Linux 的 ``xcb``/``wayland`` 会话启用；离屏平台不启用，
+    测试仍走普通窗口路径并检查完整控件树。
+    """
+    platform = _platform_name()
+    if platform == "offscreen":
+        return False
+    if _WINDOWS:
+        return True
+    return sys.platform.startswith("linux") and platform in {"xcb", "wayland"}
 
 
 def keep_window_hidden(window: QWidget) -> None:
@@ -220,10 +249,7 @@ class WindowButtons(QWidget):
 
     def toggle_maximized(self) -> None:
         """在最大化与还原之间切换窗口。"""
-        if self._window.isMaximized():
-            self._window.showNormal()
-        else:
-            self._window.showMaximized()
+        toggle_maximized(self._window)
 
     def sync_maximize_state(self) -> None:
         """按窗口当前状态切换“最大化/还原”的图标与提示。"""
@@ -382,3 +408,293 @@ def is_title_drag_point(
     if widget_under_cursor is not tab_bar:
         return False
     return tab_bar.tabAt(pos) < 0
+
+
+def toggle_maximized(window: QWidget) -> None:
+    """在最大化与还原之间切换窗口。"""
+    if window.isMaximized():
+        window.showNormal()
+    else:
+        window.showMaximized()
+
+
+# Linux 无边框窗口的缩放带宽度（像素）。与 Windows 的 WS_THICKFRAME 相近，
+# 太窄难以命中，太宽会抢占边缘控件的点击。
+_RESIZE_MARGIN_PX = 6
+
+# GTK 客户端请求窗口管理器弹出系统窗口菜单的 ClientMessage 名称；GNOME、
+# KDE、XFCE 等主流窗口管理器均实现，菜单内容与系统标题栏右键一致。
+_GTK_SHOW_WINDOW_MENU = b"_GTK_SHOW_WINDOW_MENU"
+
+_CLIENT_MESSAGE = 33
+_SUBSTRUCTURE_REDIRECT_MASK = 1 << 20
+_SUBSTRUCTURE_NOTIFY_MASK = 1 << 19
+
+
+def resize_edges_for(pos: QPoint, size: QSize, margin: int = _RESIZE_MARGIN_PX) -> Qt.Edge | None:
+    """返回命中缩放带的窗口边缘组合；不在任何边缘时返回 None。"""
+    edges = Qt.Edge(0)
+    if pos.x() <= margin:
+        edges |= Qt.Edge.LeftEdge
+    elif pos.x() >= size.width() - 1 - margin:
+        edges |= Qt.Edge.RightEdge
+    if pos.y() <= margin:
+        edges |= Qt.Edge.TopEdge
+    elif pos.y() >= size.height() - 1 - margin:
+        edges |= Qt.Edge.BottomEdge
+    return edges if edges else None
+
+
+def _resize_cursor(edges: Qt.Edge) -> Qt.CursorShape:
+    """按边缘组合返回缩放光标形状。"""
+    horizontal = edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge)
+    vertical = edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge)
+    if horizontal and vertical:
+        # 左上与右下为反斜向，右上与左下为斜向（与 Windows 一致）。
+        if (edges & Qt.Edge.LeftEdge and edges & Qt.Edge.TopEdge) or (
+            edges & Qt.Edge.RightEdge and edges & Qt.Edge.BottomEdge
+        ):
+            return Qt.CursorShape.SizeFDiagCursor
+        return Qt.CursorShape.SizeBDiagCursor
+    if horizontal:
+        return Qt.CursorShape.SizeHorCursor
+    return Qt.CursorShape.SizeVerCursor
+
+
+class _XClientMessageEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("message_type", ctypes.c_ulong),
+        ("format", ctypes.c_int),
+        ("data", ctypes.c_long * 5),
+    ]
+
+
+class _XEvent(ctypes.Union):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("xclient", _XClientMessageEvent),
+        ("pad", ctypes.c_long * 24),
+    ]
+
+
+@lru_cache(maxsize=1)
+def _x11_library() -> ctypes.CDLL:
+    """懒加载 libX11 并声明本模块用到的函数签名。"""
+    lib = ctypes.CDLL("libX11.so.6")
+    lib.XInternAtom.restype = ctypes.c_ulong
+    lib.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    lib.XDefaultRootWindow.restype = ctypes.c_ulong
+    lib.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    lib.XSendEvent.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_int,
+        ctypes.c_long,
+        ctypes.c_void_p,
+    ]
+    lib.XFlush.argtypes = [ctypes.c_void_p]
+    return lib
+
+
+def _send_x11_window_menu(window: QWidget, global_pos: QPoint) -> bool:
+    """请求 X11 窗口管理器在指定位置弹出系统窗口菜单。
+
+    复用 Qt 已打开的 X11 Display 发送 ``_GTK_SHOW_WINDOW_MENU``
+    ClientMessage（与 GTK 的行为一致），菜单内容就是系统标题栏右键菜单。
+    ``XSendEvent`` 无法确认窗口管理器是否响应，因此仅在连接、原子或窗口 ID
+    不可用时返回 False 并回退自绘菜单。
+    """
+    app = QApplication.instance()
+    if app is None or app.platformName() != "xcb":
+        return False
+    try:
+        display = app.nativeInterface().display()
+        window_id = int(window.winId())
+    except (AttributeError, RuntimeError, TypeError):
+        return False
+    if not display or not window_id:
+        return False
+    lib = _x11_library()
+    display_ptr = ctypes.c_void_p(display)
+    atom = lib.XInternAtom(display_ptr, _GTK_SHOW_WINDOW_MENU, 0)
+    if not atom:
+        return False
+    event = _XEvent()
+    event.xclient.type = _CLIENT_MESSAGE
+    event.xclient.send_event = 1
+    event.xclient.display = display_ptr
+    event.xclient.window = window_id
+    event.xclient.message_type = atom
+    event.xclient.format = 32
+    event.xclient.data[0] = 0  # timestamp：0 等同 CurrentTime
+    event.xclient.data[1] = global_pos.x()
+    event.xclient.data[2] = global_pos.y()
+    root = lib.XDefaultRootWindow(display_ptr)
+    lib.XSendEvent(
+        display_ptr,
+        root,
+        0,
+        _SUBSTRUCTURE_REDIRECT_MASK | _SUBSTRUCTURE_NOTIFY_MASK,
+        ctypes.byref(event),
+    )
+    lib.XFlush(display_ptr)
+    return True
+
+
+def build_window_menu(window: QWidget) -> QMenu:
+    """构建无边框窗口的备用窗口菜单（原生菜单不可用时兜底）。"""
+    menu = QMenu(window)
+    menu.addAction("最小化").triggered.connect(window.showMinimized)
+    toggle = menu.addAction("还原" if window.isMaximized() else "最大化")
+    toggle.triggered.connect(lambda: toggle_maximized(window))
+    menu.addAction("关闭").triggered.connect(window.close)
+    return menu
+
+
+def show_window_menu(window: QWidget, global_pos: QPoint) -> None:
+    """显示窗口菜单：优先请求 X11 系统原生菜单，其余情况弹出备用菜单。"""
+    if _send_x11_window_menu(window, global_pos):
+        return
+    build_window_menu(window).exec(global_pos)
+
+
+class _LinuxTitleBarFilter(QObject):
+    """Linux 无边框窗口的标签行过滤器：拖动、双击最大化与右键窗口菜单。"""
+
+    def __init__(self, window: QWidget) -> None:
+        super().__init__(window)
+        self._window = window
+        self._tab_bar: QTabBar | None = None
+        tab_bar = getattr(window, "tab_bar", None)
+        if isinstance(tab_bar, QTabBar):
+            self._tab_bar = tab_bar
+            tab_bar.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if self._tab_bar is None or watched is not self._tab_bar:
+            return False
+        if isinstance(event, QContextMenuEvent):
+            return self._handle_context_menu(event)
+        if isinstance(event, QMouseEvent) and event.button() is Qt.MouseButton.LeftButton:
+            return self._handle_mouse(event)
+        return False
+
+    def _handle_context_menu(self, event: QContextMenuEvent) -> bool:
+        if not is_title_drag_point(self._tab_bar, tab_bar=self._tab_bar, pos=event.pos()):
+            return False
+        show_window_menu(self._window, event.globalPos())
+        return True
+
+    def _handle_mouse(self, event: QMouseEvent) -> bool:
+        pos = event.position().toPoint()
+        if not is_title_drag_point(self._tab_bar, tab_bar=self._tab_bar, pos=pos):
+            return False
+        if event.type() is QEvent.Type.MouseButtonPress:
+            handle = self._window.windowHandle()
+            if handle is not None:
+                handle.startSystemMove()
+                return True
+        elif event.type() is QEvent.Type.MouseButtonDblClick:
+            toggle_maximized(self._window)
+            return True
+        return False
+
+
+class _LinuxResizeFilter(QObject):
+    """应用级过滤器：在无边框窗口四边/四角实现原生缩放与光标反馈。"""
+
+    def __init__(self, window: QWidget) -> None:
+        super().__init__(window)
+        self._window = window
+        self._override_active = False
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        self._ensure_hover_tracking(watched)
+        etype = event.type()
+        if watched is self._window and etype in {
+            QEvent.Type.Hide,
+            QEvent.Type.Close,
+            QEvent.Type.WindowStateChange,
+        }:
+            self._clear_cursor()
+            return False
+        if self._window.isMaximized() or not self._window.isVisible():
+            self._clear_cursor()
+            return False
+        if etype is QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if event.button() is Qt.MouseButton.LeftButton:
+                edges = self._edges_at(watched, event)
+                if edges is not None:
+                    handle = self._window.windowHandle()
+                    if handle is not None:
+                        handle.startSystemResize(edges)
+                        return True
+        elif etype in {QEvent.Type.MouseMove, QEvent.Type.HoverMove} and isinstance(
+            event, QMouseEvent
+        ):
+            self._update_cursor(self._edges_at(watched, event))
+        elif etype is QEvent.Type.Leave:
+            self._clear_cursor()
+        return False
+
+    def _edges_at(self, watched: QObject, event: QMouseEvent) -> Qt.Edge | None:
+        """把事件坐标换算到窗口坐标后判断缩放带。
+
+        Wayland 没有全局坐标，不能用 ``globalPosition()`` 反算，因此统一
+        用接收控件的局部坐标 ``mapTo`` 到窗口。
+        """
+        if isinstance(watched, QWidget):
+            local = watched.mapTo(self._window, event.position().toPoint())
+        else:
+            local = event.position().toPoint()
+        return resize_edges_for(local, self._window.size())
+
+    def _ensure_hover_tracking(self, watched: QObject) -> None:
+        """为事件经过的控件开启悬停追踪，保证边缘光标能实时反馈。"""
+        if not isinstance(watched, QWidget):
+            return
+        if not watched.hasMouseTracking():
+            watched.setMouseTracking(True)
+        if not watched.testAttribute(Qt.WidgetAttribute.WA_Hover):
+            watched.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+
+    def _update_cursor(self, edges: Qt.Edge | None) -> None:
+        if edges is None:
+            self._clear_cursor()
+            return
+        desired = QCursor(_resize_cursor(edges))
+        current = QApplication.overrideCursor()
+        if self._override_active and current is not None and current.shape() == desired.shape():
+            return
+        self._clear_cursor()
+        QApplication.setOverrideCursor(desired)
+        self._override_active = True
+
+    def _clear_cursor(self) -> None:
+        if self._override_active:
+            QApplication.restoreOverrideCursor()
+            self._override_active = False
+
+
+def enable_linux_custom_title_bar(window: QWidget) -> None:
+    """Linux 下去掉系统标题栏，标签行兼作标题行。
+
+    与 Windows 的 ``WS_CAPTION`` 方案等价：``FramelessWindowHint`` 去掉系统
+    装饰，拖动、双击最大化、边缘缩放与右键窗口菜单分别由两个事件过滤器
+    补回；窗口按钮由 ``MainWindow`` 装配到标签行右上角。
+    """
+    if _WINDOWS or not sys.platform.startswith("linux"):
+        return
+    window.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+    window.setMouseTracking(True)
+    window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+    _LinuxTitleBarFilter(window)
+    _LinuxResizeFilter(window)

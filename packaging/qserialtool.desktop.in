@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=QSerialTool
+Comment=跨平台串口调试助手
+Exec=@EXEC@
+Icon=qserialtool
+Terminal=false
+Categories=Development;
+StartupWMClass=QSerialTool
+Keywords=serial;uart;terminal;

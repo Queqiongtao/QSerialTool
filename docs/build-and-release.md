@@ -5,7 +5,8 @@
 - Windows 10/11 x64。
 - Ubuntu 22.04 x64 或兼容的 Linux x64 环境。
 - Python 3.10.x–3.13.x。
-- 已按 README 创建 `.venv` 并安装 `[dev,build]` 依赖。
+- 已在对应平台创建 `.venv` 并安装构建依赖（Linux 步骤见下文「Linux 构建」，
+  Windows 可先按 README 安装 `[dev,build]`）。
 
 Windows 和 Linux 必须在对应操作系统上分别构建，不能交叉生成单文件程序。
 
@@ -43,12 +44,52 @@ dist/QSerialTool.exe.sha256
 
 ## Linux 构建
 
-在 Ubuntu 22.04 或兼容环境运行：
+以下步骤在 Ubuntu 22.04 x64（或兼容的 Linux x64）执行；发布构建使用
+`requirements.lock` 固定依赖版本，保证与验收环境一致。
+
+### 1. 安装系统依赖
+
+构建机和目标机都需要 Qt 图形运行库。Ubuntu 22.04 默认没有 Qt 6.5 及以上
+`xcb` 平台插件所需的 `libxcb-cursor0`，缺少时单文件启动会报
+“Could not load the Qt platform plugin xcb”：
+
+```bash
+sudo apt-get install -y libxcb-cursor0
+```
+
+其余基础图形库及发行版差异见下文「运行依赖」。
+
+### 2. 创建虚拟环境并安装锁定依赖
+
+```bash
+cd QSerialTool
+python3.10 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip setuptools wheel
+./.venv/bin/python -m pip install -r requirements.lock
+./.venv/bin/python -m pip install --no-deps -e .
+```
+
+`requirements.lock` 由 `pip-compile --all-extras` 生成，覆盖运行时与 `[dev,build]`
+依赖的精确版本；最后一步用 `--no-deps` 安装当前源码，避免替换已锁定版本。
+也可以只运行 `./.venv/bin/python -m pip install -e ".[dev,build]"`，但它会按
+`pyproject.toml` 的版本范围解析最新版本（例如 PySide6 6.12 会额外拉取
+WebEngine/PDF 组件），发布构建不推荐。
+
+### 3. 构建
 
 ```bash
 chmod +x scripts/build.sh
 ./scripts/build.sh
 ```
+
+脚本依次执行：
+
+1. 文档同步检查（当前工作区）。
+2. Ruff 格式检查。
+3. Ruff 静态检查。
+4. `QT_QPA_PLATFORM=offscreen pytest` 全部测试。
+5. PyInstaller 单文件构建（`packaging/qserialtool.spec`）。
+6. 生成 SHA-256 校验文件。
 
 产物：
 
@@ -56,6 +97,16 @@ chmod +x scripts/build.sh
 dist/QSerialTool
 dist/QSerialTool.sha256
 ```
+
+校验：
+
+```bash
+cd dist
+sha256sum -c QSerialTool.sha256
+```
+
+重新构建前请先退出正在运行的单文件进程，否则 PyInstaller 覆盖 `dist/QSerialTool`
+时会因文件被占用失败。Linux 单文件只能在 Linux 构建，不能由 Windows 交叉生成。
 
 ## 文档同步与 CI
 
@@ -71,6 +122,17 @@ git config core.hooksPath .githooks
 
 Windows 单文件目标机器无需安装 Python。Linux 单文件仍依赖常见图形和系统运行库；若启动时报 Qt 平台插件错误，请根据发行版安装 XCB 相关系统库。
 
+Ubuntu 22.04 默认没有 Qt 6.5 及以上 `xcb` 平台插件所需的 `libxcb-cursor0`，
+未安装时会报“Could not load the Qt platform plugin xcb”。执行以下命令补齐：
+
+```bash
+sudo apt-get install -y libxcb-cursor0
+```
+
+其他发行版还需确保 `libxcb-xinerama0`、`libxkbcommon-x11-0`、`libegl1`、`libgl1`、
+`libdbus-1-3`、`libfontconfig1`、`libglib2.0-0` 等基础图形库存在（CI 工作流
+`.github/workflows/quality.yml` 列出了参考列表）。
+
 ## 单文件行为
 
 - 首次启动会解压到系统临时目录，启动速度慢于普通源码运行。
@@ -82,10 +144,33 @@ Windows 单文件目标机器无需安装 Python。Linux 单文件仍依赖常�
 
 应用图标与控件样式资源位于 `src/qserialtool/ui/assets/`：
 
-- `qserialtool.png` / `qserialtool.ico`：窗口图标；Windows 单文件构建会同时把 ICO 写入可执行文件图标。
+- `qserialtool.png` / `qserialtool.ico`：窗口图标；Windows 单文件构建会同时把 ICO 写入可执行文件图标，Linux 的 `.desktop` 入口安装也复用该 PNG（见下文「Linux 桌面图标」）。
 - `chevron-*.svg`、`check*.svg`：下拉箭头与勾选标记（含禁用态），由全局 QSS 引用。
 
 这些文件通过 `packaging/qserialtool.spec` 的 `datas` 打进单文件产物（解包路径为 `qserialtool/ui/assets`），并在 `pyproject.toml` 的 `package-data` 中声明，保证源码安装同样可用。修改图标图形后运行 `.\.venv\Scripts\python.exe scripts\generate_icon.py` 重新生成 PNG/ICO，并与脚本一起提交。
+
+## Linux 桌面图标
+
+ELF 可执行文件没有内嵌应用图标的标准，PyInstaller 在 Linux 也会忽略 `icon`
+参数，因此裸 `dist/QSerialTool` 在文件管理器中显示通用可执行文件图标，这与
+使用的图标资源无关。GNOME/KDE 等桌面环境通过 `.desktop` 入口显示应用菜单、
+坞站和启动器图标。
+
+为当前用户安装桌面入口与图标：
+
+```bash
+./scripts/install-desktop.sh            # 默认使用 dist/QSerialTool
+./scripts/install-desktop.sh /path/to/QSerialTool
+./scripts/install-desktop.sh --uninstall
+```
+
+脚本把 `qserialtool.png` 安装到
+`${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps/qserialtool.png`，
+把 `packaging/qserialtool.desktop.in` 替换 `Exec` 后写入
+`${XDG_DATA_HOME:-$HOME/.local/share}/applications/qserialtool.desktop`，并在
+可用时刷新桌面数据库。运行中的窗口由 `configure_desktop_entry()` 声明
+`qserialtool` 桌面文件名，配合入口里的 `StartupWMClass=QSerialTool` 让坞站
+关联到该图标；重新登录或刷新桌面缓存后生效。卸载后裸文件仍显示通用图标。
 
 ## 当前 Windows 构建记录
 
@@ -95,3 +180,20 @@ Windows 单文件目标机器无需安装 Python。Linux 单文件仍依赖常�
 - 大小：44971847 字节
 - SHA-256：`1e7e8a09d7148c9fb220a9760fc81639dbd6aca876da7fbc3684a0133247ee9b`
 - 本机已能直接启动该产物（单文件解包、Qt 插件、窗口渲染与配置读写正常）；并已在未安装 Python 的干净 Windows 环境完成单文件冷启动验收（2026-10-17）。
+
+## 当前 Linux 构建记录
+
+2026-10-18 在 Ubuntu 22.04.5 LTS（内核 6.8.0-138，glibc 2.35，Python 3.10.12，
+PySide6 6.11.2 按 `requirements.lock`）执行 `./scripts/build.sh`，文档同步、Ruff、
+pytest（507 passed, 16 skipped）、PyInstaller 单文件与 SHA-256 全部通过：
+
+- 文件：`dist/QSerialTool`
+- 大小：66493936 字节
+- SHA-256：`dc97ae490b3f7be09e04270bbea44d289620b7d913c553e80b2058a8619eec94`
+- 已用 `env -i` 空环境（无 `PATH`）与 `QT_QPA_PLATFORM=xcb` 完成冷启动、`xcb`
+  插件加载、配置/诊断日志创建、明暗主题截图核对，并确认无边框单行标题行
+  （窗口未被 WM 加框、无 `_NET_FRAME_EXTENTS`，窗口按钮位于标签行右端）；
+- `scripts/install-desktop.sh` 安装的 `.desktop` 入口通过 `desktop-file-validate`，
+  `gtk-launch qserialtool` 可正常启动且窗口 `WM_CLASS=QSerialTool` 与
+  `StartupWMClass` 匹配；同机同时承担构建与验收，未在未安装 Python 的独立
+  干净系统复验。

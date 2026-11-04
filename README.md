@@ -17,7 +17,7 @@ QSerialTool 是一个面向开发者与测试人员的跨平台串口调试助�
 - M4：实现 CSV/TXT 日志、配置恢复、发送历史、周期发送、主题切换和日志导出。
 - M5：已加入 Windows/Linux 单文件构建脚本、PyInstaller 配置、发布文档和检查清单。
 
-当前仍需在 Ubuntu 22.04 上完成单文件冷启动与验收；Windows 已完成真实串口收发、压力与长时间稳定性验收。
+Windows 已完成真实串口收发、压力与长时间稳定性验收；Linux 已在 Ubuntu 22.04 完成单文件构建、冷启动与虚拟串口验收，真实 USB 串口硬件场景待补充。
 ## 环境要求
 
 - Python 3.10.x–3.13.x
@@ -39,8 +39,15 @@ python -m venv .venv
 ```bash
 python3.10 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip setuptools wheel
-./.venv/bin/python -m pip install -e ".[dev,build]"
+./.venv/bin/python -m pip install -r requirements.lock
+./.venv/bin/python -m pip install --no-deps -e .
 ```
+
+`requirements.lock` 是可复现的精确版本集合；也可以改用
+`./.venv/bin/python -m pip install -e ".[dev,build]"`（按 `pyproject.toml`
+版本范围解析）。构建或运行单文件前，Ubuntu 22.04 还需安装
+`libxcb-cursor0` 等图形库；完整的系统依赖、构建与校验步骤见
+`docs/build-and-release.md`。
 
 ## 生成依赖锁文件
 
