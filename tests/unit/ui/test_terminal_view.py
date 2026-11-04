@@ -95,6 +95,117 @@ def test_session_tab_toggles_terminal_view_and_persists_per_tab(qtbot: object) -
     window.close()
 
 
+def test_terminal_input_mode_menu_persists_and_restores(qtbot: object) -> None:
+    transport = FakeTransport()
+    store = RecordingStore()
+    window = build_window_with_store(qtbot, transport, store)
+    tab = current_tab(window)
+
+    qtbot.mouseClick(window.view_toggle_button, Qt.MouseButton.LeftButton)
+    assert tab.receive_panel.terminal_input_mode == "line"
+    assert tab.send_settings_button._input_actions["line"].isChecked()
+    assert tab.send_settings_button.format_menu.isEnabled()
+
+    tab.send_settings_button._input_actions["raw"].trigger()
+
+    assert tab.receive_panel.terminal_input_mode == "raw"
+    assert tab.to_preferences().terminal_input_mode == "raw"
+    assert tab.send_settings_button._input_actions["raw"].isChecked()
+    assert not tab.send_settings_button.format_menu.isEnabled()
+    assert tab.send_panel.send_mode == "text"
+    tab._set_terminal_send_mode("hex")
+    assert tab.send_panel.send_mode == "text"
+
+    window._save_timer.stop()
+    window._save_config()
+    assert store.saves[-1].sessions[0].terminal_input_mode == "raw"
+    window.close()
+
+    manager = SessionManager(
+        transport_factory=FakeTransport,
+        clock=FakeClock(),
+    )
+    preferences = SessionPreferences(
+        title="terminal",
+        config=SerialConfig(port=""),
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+        view_mode="terminal",
+        terminal_input_mode="raw",
+    )
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(preferences,),
+    )
+    restored_window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        initial_config=config,
+    )
+    qtbot.addWidget(restored_window)
+    restored_window.show()
+    restored_tab = current_tab(restored_window)
+
+    try:
+        assert restored_tab.receive_panel.terminal_input_mode == "raw"
+        assert restored_tab.send_settings_button._input_actions["raw"].isChecked()
+        assert not restored_tab.send_settings_button.format_menu.isEnabled()
+        assert restored_tab.send_panel.send_mode == "text"
+    finally:
+        restored_window.close()
+
+
+def test_raw_input_mode_forces_text_format_when_loading_hex_preferences(
+    qtbot: object,
+) -> None:
+    manager = SessionManager(
+        transport_factory=FakeTransport,
+        clock=FakeClock(),
+    )
+    preferences = SessionPreferences(
+        title="terminal",
+        config=SerialConfig(port=""),
+        display_mode="text",
+        show_timestamp=True,
+        show_rx=True,
+        show_tx=True,
+        autoscroll=True,
+        send_mode="hex",
+        view_mode="terminal",
+        terminal_input_mode="raw",
+    )
+    config = AppConfig(
+        schema_version=1,
+        theme="system",
+        window_geometry=None,
+        window_state=None,
+        active_session_index=0,
+        sessions=(preferences,),
+    )
+    window = MainWindow(
+        session_manager=manager,
+        port_provider=lambda: (PortInfo(device="COM1"),),
+        initial_config=config,
+    )
+    qtbot.addWidget(window)
+    window.show()
+    tab = current_tab(window)
+
+    try:
+        assert tab.receive_panel.terminal_input_mode == "raw"
+        assert tab.send_panel.send_mode == "text"
+        assert tab.send_settings_button.format_menu.isEnabled() is False
+    finally:
+        window.close()
+
+
 def test_session_tab_restores_terminal_view_and_saved_split_state(
     qtbot: object,
 ) -> None:

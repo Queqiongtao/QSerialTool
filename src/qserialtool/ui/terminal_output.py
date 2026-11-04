@@ -2,11 +2,12 @@
 
 from collections.abc import Callable, Sequence
 
-from PySide6.QtCore import QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QContextMenuEvent,
     QFocusEvent,
     QHideEvent,
+    QInputMethodEvent,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -18,7 +19,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QMenu, QPlainTextEdit, QWidget
 
-from qserialtool.domain import TerminalScreen
+from qserialtool.domain import TerminalInputMode, TerminalScreen
 from qserialtool.ui.terminal_inline_input import TerminalInlineInput
 from qserialtool.ui.terminal_render_format import text_format
 from qserialtool.ui.terminal_screen_renderer import TerminalScreenRenderer
@@ -26,15 +27,33 @@ from qserialtool.ui.terminal_screen_renderer import TerminalScreenRenderer
 # 块状光标的闪烁周期（毫秒）；与 Windows 控制台、xterm 默认的 530ms 一致。
 _CURSOR_BLINK_MS = 530
 
+# 纯修饰键不应清空选区或产生发送；Qt 会为按下修饰键单独派发 KeyPress。
+_MODIFIER_KEYS = frozenset(
+    {
+        Qt.Key.Key_Shift,
+        Qt.Key.Key_Control,
+        Qt.Key.Key_Alt,
+        Qt.Key.Key_AltGr,
+        Qt.Key.Key_Meta,
+        Qt.Key.Key_Super_L,
+        Qt.Key.Key_Super_R,
+        Qt.Key.Key_Hyper_L,
+        Qt.Key.Key_CapsLock,
+        Qt.Key.Key_NumLock,
+        Qt.Key.Key_ScrollLock,
+    }
+)
+
 
 class TerminalOutput(QPlainTextEdit):
-    """渲染终端网格，并把单行输入维护为光标处的可编辑草稿。"""
+    """渲染终端网格，并支持行缓冲草稿或逐键发送两种输入方式。"""
 
     copied = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._terminal_mode = False
+        self._raw_input_enabled = True
         self._autoscroll = True
         self._batch_update = False
         self._scrolling = False
@@ -63,8 +82,21 @@ class TerminalOutput(QPlainTextEdit):
 
     @property
     def draft(self) -> str:
-        """返回当前终端输入草稿。"""
+        """返回当前终端输入草稿；逐键模式始终为空。"""
         return self._input.draft
+
+    @property
+    def input_mode(self) -> TerminalInputMode:
+        """返回当前终端输入模式。"""
+        return self._input.mode
+
+    def set_input_mode(self, mode: TerminalInputMode) -> None:
+        """切换行缓冲/逐键发送模式。"""
+        self._input.set_mode(mode)
+
+    def set_raw_input_enabled(self, enabled: bool) -> None:
+        """在未连接时关闭逐键发送，避免每个按键都弹出错误提示。"""
+        self._raw_input_enabled = enabled
 
     def set_terminal_mode(self, enabled: bool) -> None:
         """启用或关闭终端网格渲染与内联输入。"""
@@ -88,6 +120,10 @@ class TerminalOutput(QPlainTextEdit):
     def set_raw_send_handler(self, handler: Callable[[bytes], bool]) -> None:
         """设置原始字节发送回调，用于终端方向键等按键透传。"""
         self._input.set_raw_send_handler(handler)
+
+    def set_text_send_handler(self, handler: Callable[[str], bool]) -> None:
+        """设置逐键模式的文本发送回调。"""
+        self._input.set_text_send_handler(handler)
 
     def set_autoscroll(self, enabled: bool) -> None:
         """设置新记录到达时是否自动滚动。"""
@@ -286,12 +322,19 @@ class TerminalOutput(QPlainTextEdit):
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         """有选中内容时右键直接复制；没有选中时才弹出只含“全选”的菜单。"""
-        if self.textCursor().hasSelection():
-            self.copy()
-            self.copied.emit(len(self.textCursor().selectedText()))
+        if self._copy_selection():
             event.accept()
             return
         self._build_context_menu().exec(event.globalPos())
+
+    def _copy_selection(self) -> bool:
+        """复制当前选区并通知宿主；没有选区时返回 False。"""
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            return False
+        self.copy()
+        self.copied.emit(len(cursor.selectedText()))
+        return True
 
     def _build_context_menu(self) -> QMenu:
         """构造无选中内容时的右键菜单：只提供全选。"""
@@ -300,10 +343,26 @@ class TerminalOutput(QPlainTextEdit):
         select_all_action.triggered.connect(self.selectAll)
         return menu
 
+    def event(self, event: QEvent) -> bool:
+        """逐键模式下让终端优先接收 Ctrl+A–Z 等应用快捷键。"""
+        if (
+            event.type() == QEvent.Type.ShortcutOverride
+            and self._terminal_mode
+            and self._input.is_raw
+            and isinstance(event, QKeyEvent)
+            and self._accepts_raw_shortcut(event)
+        ):
+            event.accept()
+            return True
+        return super().event(event)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """限制编辑范围，并把回车和上下键交给终端命令处理。"""
+        """限制行缓冲编辑，或把逐键按键立即发送给设备。"""
         if not self._terminal_mode:
             super().keyPressEvent(event)
+            return
+        if self._input.is_raw:
+            self._handle_raw_key(event)
             return
         if self._input.handle_command(event) or self._input.guard_edit(event):
             self._touch_cursor()
@@ -313,17 +372,82 @@ class TerminalOutput(QPlainTextEdit):
         self._input.sync_from_document()
         self._touch_cursor()
 
+    def _accepts_raw_shortcut(self, event: QKeyEvent) -> bool:
+        """返回该 ShortcutOverride 是否应由逐键终端接管。"""
+        modifiers = event.modifiers()
+        if not modifiers & Qt.KeyboardModifier.ControlModifier:
+            return False
+        if modifiers & Qt.KeyboardModifier.AltModifier:
+            return False
+        key = event.key()
+        if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+            return True
+        return key in {
+            Qt.Key.Key_Space,
+            Qt.Key.Key_BracketLeft,
+            Qt.Key.Key_Backslash,
+            Qt.Key.Key_BracketRight,
+            Qt.Key.Key_AsciiCircum,
+            Qt.Key.Key_Underscore,
+        }
+
+    def _handle_raw_key(self, event: QKeyEvent) -> None:
+        """把逐键模式的按键交给终端输入控制器。"""
+        event.accept()
+        key = event.key()
+        if key in _MODIFIER_KEYS:
+            return
+        modifiers = event.modifiers()
+        control = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        if control and shift and key == Qt.Key.Key_C:
+            self._copy_selection()
+            return
+        if not self._raw_input_enabled:
+            return
+        if control and shift and key == Qt.Key.Key_V:
+            self._prepare_raw_input()
+            self.paste()
+            self._touch_cursor()
+            return
+        self._prepare_raw_input()
+        self._input.handle_command(event)
+        self._touch_cursor()
+
+    def _prepare_raw_input(self) -> None:
+        """逐键输入前清理选区，把光标放回终端模型光标处。"""
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            cursor.clearSelection()
+            self.setTextCursor(cursor)
+        self._input.place_cursor()
+
     def insertFromMimeData(self, source: object) -> None:
         """粘贴单行文本；多行文本按非空行依次发送。"""
         if not self._terminal_mode:
             super().insertFromMimeData(source)
             return
+        if self._input.is_raw:
+            if not self._raw_input_enabled:
+                return
+            self._prepare_raw_input()
+            self._input.insert_paste(source.text())
+            self._touch_cursor()
+            return
         self._input.insert_paste(source.text())
 
-    def inputMethodEvent(self, event: object) -> None:
+    def inputMethodEvent(self, event: QInputMethodEvent) -> None:
         """让输入法文本继续受终端输入区约束。"""
         if not self._terminal_mode:
             super().inputMethodEvent(event)
+            return
+        if self._input.is_raw:
+            event.accept()
+            commit_text = event.commitString()
+            if self._raw_input_enabled and commit_text:
+                self._prepare_raw_input()
+                self._input.handle_raw_input_method(commit_text)
+                self._touch_cursor()
             return
         self._input.constrain_cursor()
         super().inputMethodEvent(event)

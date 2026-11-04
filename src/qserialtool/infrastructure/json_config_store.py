@@ -153,4 +153,5 @@ class JsonConfigStore:
             highlight_enabled=payload.get("highlight_enabled", True),
             wrap_enabled=payload.get("wrap_enabled", True),
             terminal_timestamp=payload.get("terminal_timestamp", False),
+            terminal_input_mode=payload.get("terminal_input_mode", "line"),
         )

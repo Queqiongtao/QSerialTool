@@ -11,6 +11,7 @@ LogFormat: TypeAlias = Literal["csv", "txt"]
 Parity: TypeAlias = Literal["N", "E", "O", "M", "S"]
 Theme: TypeAlias = Literal["system", "light", "dark"]
 ViewMode: TypeAlias = Literal["split", "terminal"]
+TerminalInputMode: TypeAlias = Literal["line", "raw"]
 
 CONFIG_SCHEMA_VERSION = 1
 DEFAULT_RECEIVE_BUFFER_BYTES = 32 * 1024 * 1024
@@ -36,3 +37,4 @@ SUPPORTED_PARITIES = frozenset({"N", "E", "O", "M", "S"})
 SUPPORTED_STOPBITS = frozenset({1.0, 1.5, 2.0})
 SUPPORTED_THEMES = frozenset({"system", "light", "dark"})
 SUPPORTED_VIEW_MODES = frozenset({"split", "terminal"})
+SUPPORTED_TERMINAL_INPUT_MODES = frozenset({"line", "raw"})

@@ -47,6 +47,7 @@ from .types import (
     LogDirection,
     LogFormat,
     Parity,
+    TerminalInputMode,
     Theme,
     ViewMode,
 )
@@ -93,6 +94,7 @@ __all__ = [
     "SessionState",
     "SessionStateMachine",
     "TerminalCell",
+    "TerminalInputMode",
     "TerminalScreen",
     "TerminalStyle",
     "TextEncodingError",

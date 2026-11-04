@@ -26,6 +26,7 @@ from .types import (
     SUPPORTED_LOG_FORMATS,
     SUPPORTED_PARITIES,
     SUPPORTED_STOPBITS,
+    SUPPORTED_TERMINAL_INPUT_MODES,
     SUPPORTED_THEMES,
     SUPPORTED_VIEW_MODES,
     DisplayMode,
@@ -35,6 +36,7 @@ from .types import (
     LogDirection,
     LogFormat,
     Parity,
+    TerminalInputMode,
     Theme,
     ViewMode,
 )
@@ -211,6 +213,7 @@ class SessionPreferences:
     highlight_enabled: bool = True
     wrap_enabled: bool = True
     terminal_timestamp: bool = False
+    terminal_input_mode: TerminalInputMode = "line"
 
     def __post_init__(self) -> None:
         _require_string(self.title, "标签标题")
@@ -249,6 +252,8 @@ class SessionPreferences:
         _require_bool(self.highlight_enabled, "highlight_enabled")
         _require_bool(self.wrap_enabled, "wrap_enabled")
         _require_bool(self.terminal_timestamp, "terminal_timestamp")
+        if self.terminal_input_mode not in SUPPORTED_TERMINAL_INPUT_MODES:
+            raise ValidationError("终端输入模式必须是 line 或 raw。")
 
 
 @dataclass(frozen=True, slots=True)

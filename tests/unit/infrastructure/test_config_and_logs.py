@@ -49,6 +49,7 @@ def _app_config() -> AppConfig:
         view_mode="terminal",
         wrap_enabled=False,
         terminal_timestamp=True,
+        terminal_input_mode="raw",
     )
     return AppConfig(
         schema_version=1,
@@ -103,6 +104,19 @@ def test_json_config_defaults_view_mode_for_legacy_files(tmp_path: Path) -> None
 
     assert loaded is not None
     assert loaded.sessions[0].view_mode == "split"
+
+
+def test_json_config_defaults_terminal_input_mode_for_legacy_files(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    payload = asdict(_app_config())
+    del payload["sessions"][0]["terminal_input_mode"]
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    store = JsonConfigStore(path)
+
+    loaded = store.load()
+
+    assert loaded is not None
+    assert loaded.sessions[0].terminal_input_mode == "line"
 
 
 def test_json_config_defaults_receive_buffer_for_legacy_files(tmp_path: Path) -> None:

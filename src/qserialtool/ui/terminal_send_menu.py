@@ -4,16 +4,17 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import QMenu, QToolButton, QWidget
 
-from qserialtool.domain import DisplayMode, LineEnding
+from qserialtool.domain import DisplayMode, LineEnding, TerminalInputMode
 from qserialtool.ui.icons import set_action_icon
 
 
 class TerminalSendMenu(QToolButton):
-    """终端视图的发送设置按钮：格式、换行与发送历史。
+    """终端视图的发送设置按钮：输入方式、格式、换行与发送历史。
 
     菜单只发出选择信号，不直接依赖发送或接收面板；由使用方把信号接到具体动作。
     """
 
+    input_mode_selected = Signal(str)
     send_mode_selected = Signal(str)
     line_ending_selected = Signal(str)
     history_selected = Signal(str)
@@ -25,11 +26,30 @@ class TerminalSendMenu(QToolButton):
         set_action_icon(self, "sliders")
         # QToolButton 默认只显示图标；这里需要“图标 + 文字”的普通按钮外观。
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.setToolTip("终端发送设置：格式、换行和历史")
+        self.setToolTip("终端发送设置：输入方式、格式、换行和历史")
 
         menu = QMenu(self)
+        self._input_actions: dict[TerminalInputMode, QAction] = {}
+        input_menu = menu.addMenu("输入")
+        input_group = QActionGroup(self)
+        input_group.setExclusive(True)
+        for label, value, tooltip in (
+            ("行缓冲（回车整行发送）", "line", "本地编辑，按回车后整行发送"),
+            ("逐键发送（原始终端）", "raw", "按键立即发送，适合 Linux shell 的 Tab 补全"),
+        ):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setToolTip(tooltip)
+            action.triggered.connect(
+                lambda _checked=False, value=value: self.input_mode_selected.emit(value)
+            )
+            input_group.addAction(action)
+            input_menu.addAction(action)
+            self._input_actions[value] = action
+
         self._format_actions: dict[DisplayMode, QAction] = {}
-        format_menu = menu.addMenu("格式")
+        self.format_menu = menu.addMenu("格式")
+        self.format_menu.setToolTip("逐键模式按文本编码发送，HEX 仅用于行缓冲")
         format_group = QActionGroup(self)
         format_group.setExclusive(True)
         for label, value in (("文本", "text"), ("HEX", "hex")):
@@ -39,7 +59,7 @@ class TerminalSendMenu(QToolButton):
                 lambda _checked=False, value=value: self.send_mode_selected.emit(value)
             )
             format_group.addAction(action)
-            format_menu.addAction(action)
+            self.format_menu.addAction(action)
             self._format_actions[value] = action
 
         self._newline_actions: dict[LineEnding, QAction] = {}
@@ -67,13 +87,17 @@ class TerminalSendMenu(QToolButton):
     def sync(
         self,
         *,
+        input_mode: TerminalInputMode,
         send_mode: DisplayMode,
         line_ending: LineEnding,
         history: tuple[str, ...],
     ) -> None:
-        """让菜单反映当前发送偏好与发送历史。"""
+        """让菜单反映当前输入方式、发送偏好与发送历史。"""
+        for value, action in self._input_actions.items():
+            action.setChecked(value == input_mode)
         for value, action in self._format_actions.items():
             action.setChecked(value == send_mode)
+        self.format_menu.setEnabled(input_mode == "line")
         for value, action in self._newline_actions.items():
             action.setChecked(value == line_ending)
 

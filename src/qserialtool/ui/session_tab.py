@@ -17,13 +17,16 @@ from PySide6.QtWidgets import (
 
 from qserialtool.application import SessionController
 from qserialtool.domain import (
+    DisplayMode,
     DomainError,
     LogRecord,
     PortInfo,
     SessionPreferences,
     SessionSnapshot,
     SessionState,
+    TerminalInputMode,
     ViewMode,
+    encode_text,
 )
 from qserialtool.ui.connection_panel import ConnectionPanel
 from qserialtool.ui.font_zoom import FontZoomFilter
@@ -86,6 +89,13 @@ class SessionTab(QWidget):
         preferences: SessionPreferences | None,
     ) -> None:
         self._build_panels(port_provider, preferences)
+        if (
+            preferences is not None
+            and preferences.terminal_input_mode == "raw"
+            and self.send_panel.send_mode == "hex"
+        ):
+            # 逐键模式按文本编码发送，HEX 只对行缓冲有意义。
+            self.send_panel.set_send_mode("text")
         self._font_zoom_filter = FontZoomFilter(self)
         self._font_zoom_filter.zoom_requested.connect(self.font_zoom_requested.emit)
         self.receive_panel.output.viewport().installEventFilter(self._font_zoom_filter)
@@ -121,19 +131,46 @@ class SessionTab(QWidget):
 
     def _build_terminal_send_menu(self) -> None:
         self.send_settings_button = TerminalSendMenu()
-        self.send_settings_button.send_mode_selected.connect(self.send_panel.set_send_mode)
+        self.send_settings_button.input_mode_selected.connect(self._set_terminal_input_mode)
+        self.send_settings_button.send_mode_selected.connect(self._set_terminal_send_mode)
         self.send_settings_button.line_ending_selected.connect(self.send_panel.set_line_ending)
-        self.send_settings_button.history_selected.connect(self.receive_panel.set_terminal_draft)
+        self.send_settings_button.history_selected.connect(self._terminal_history_selected)
         # 只挂在卡片工具行；整行由接收面板按视图模式显隐（终端视图才出现）。
         self.receive_panel.add_settings_tool(self.send_settings_button)
 
     def _sync_terminal_send_menu(self) -> None:
-        """让终端发送设置菜单反映当前发送偏好和历史。"""
+        """让终端发送设置菜单反映当前输入方式、发送偏好和历史。"""
         self.send_settings_button.sync(
+            input_mode=self.receive_panel.terminal_input_mode,
             send_mode=self.send_panel.send_mode,
             line_ending=self.send_panel.line_ending,
             history=self.send_panel.history,
         )
+
+    def _set_terminal_input_mode(self, mode: TerminalInputMode) -> None:
+        """切换终端输入方式；逐键模式强制文本编码。"""
+        if mode not in {"line", "raw"}:
+            return
+        if mode == "raw" and self.send_panel.send_mode == "hex":
+            self.send_panel.set_send_mode("text")
+        self.receive_panel.set_terminal_input_mode(mode)
+        self._sync_terminal_send_menu()
+        self.preferences_changed.emit()
+
+    def _set_terminal_send_mode(self, mode: DisplayMode) -> None:
+        """逐键模式按文本编码发送，拒绝把格式切到 HEX。"""
+        if self.receive_panel.terminal_input_mode == "raw" and mode == "hex":
+            self._sync_terminal_send_menu()
+            return
+        self.send_panel.set_send_mode(mode)
+
+    def _terminal_history_selected(self, text: str) -> None:
+        """历史菜单在行缓冲模式回填草稿，在逐键模式直接发送首行。"""
+        if self.receive_panel.terminal_input_mode == "raw":
+            first_line = text.replace("\r\n", "\n").replace("\r", "\n").split("\n", 1)[0]
+            self.send_panel.send_content(first_line, remember=False)
+            return
+        self.receive_panel.set_terminal_draft(text)
 
     def _build_view_controller(self) -> None:
         self._view_controller = ViewModeController(
@@ -219,6 +256,7 @@ class SessionTab(QWidget):
         self.receive_panel.set_line_submit_handler(self.send_panel.send_content)
         self.receive_panel.set_history_provider(lambda: self.send_panel.history)
         self.receive_panel.set_raw_send_handler(self._send_raw_bytes)
+        self.receive_panel.set_text_send_handler(self._send_terminal_text)
         self.receive_panel.output.copied.connect(self._show_copy_hint)
         self.receive_panel.preferences_changed.connect(self.preferences_changed.emit)
         self.send_panel.preferences_changed.connect(self._sync_terminal_send_menu)
@@ -227,13 +265,24 @@ class SessionTab(QWidget):
         self._sync_terminal_send_menu()
 
     def _send_raw_bytes(self, data: bytes) -> bool:
-        """把终端按键序列原样发送给设备。"""
+        """把终端按键序列原样发送给设备；未连接时静默忽略。"""
+        if self.controller.state is not SessionState.CONNECTED:
+            return False
         try:
             self.controller.send(data)
         except DomainError as exc:
             QMessageBox.warning(self, "发送失败", exc.message)
             return False
         return True
+
+    def _send_terminal_text(self, text: str) -> bool:
+        """按当前会话编码发送逐键模式的可打印文本。"""
+        try:
+            data = encode_text(text, self.controller.config.encoding)
+        except DomainError as exc:
+            QMessageBox.warning(self, "发送失败", exc.message)
+            return False
+        return self._send_raw_bytes(data)
 
     def set_data_font_size(self, size: int) -> None:
         """按全局字号同步接收区与发送编辑框字体。"""
@@ -319,6 +368,7 @@ class SessionTab(QWidget):
             highlight_enabled=self.receive_panel.highlight_check.isChecked(),
             wrap_enabled=self.receive_panel.wrap_check.isChecked(),
             terminal_timestamp=self.receive_panel.terminal_timestamp_check.isChecked(),
+            terminal_input_mode=self.receive_panel.terminal_input_mode,
             auto_log_enabled=self.controller.auto_log_enabled,
             auto_log_format=self.controller.auto_log_format,
             auto_log_directory=self.controller.auto_log_directory,
@@ -350,7 +400,9 @@ class SessionTab(QWidget):
         ):
             self.connection_panel.apply_snapshot(snapshot)
         if previous is None or snapshot.state is not previous.state:
-            self.send_panel.set_connected(snapshot.state is SessionState.CONNECTED)
+            connected = snapshot.state is SessionState.CONNECTED
+            self.send_panel.set_connected(connected)
+            self.receive_panel.set_terminal_input_enabled(connected)
             self.log_panel.apply_snapshot(snapshot)
         self._refresh_status()
         if snapshot.last_error is None:

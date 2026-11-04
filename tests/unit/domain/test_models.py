@@ -271,6 +271,15 @@ def test_session_preferences_defaults_terminal_timestamp() -> None:
             _preferences(terminal_timestamp=value)
 
 
+def test_session_preferences_defaults_terminal_input_mode() -> None:
+    assert _preferences().terminal_input_mode == "line"
+    assert _preferences(terminal_input_mode="raw").terminal_input_mode == "raw"
+
+    for value in ("invalid", 1, None):
+        with pytest.raises(ValidationError):
+            _preferences(terminal_input_mode=value)
+
+
 def test_app_config_validates_active_session_index() -> None:
     preferences = _preferences()
     config = AppConfig(1, "system", None, None, 0, (preferences,))

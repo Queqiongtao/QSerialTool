@@ -15,7 +15,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from qserialtool.domain import DisplayMode, LogRecord, SessionPreferences, TerminalScreen
+from qserialtool.domain import (
+    DisplayMode,
+    LogRecord,
+    SessionPreferences,
+    TerminalInputMode,
+    TerminalScreen,
+)
 from qserialtool.ui.icons import set_action_icon, svg_icon
 from qserialtool.ui.receive_format import record_segments, should_show
 from qserialtool.ui.terminal_output import TerminalOutput
@@ -207,6 +213,23 @@ class ReceivePanel(QWidget):
         """设置终端按键透传的原始字节发送回调。"""
         self.output.set_raw_send_handler(handler)
 
+    def set_text_send_handler(self, handler: Callable[[str], bool]) -> None:
+        """设置逐键模式的文本发送回调。"""
+        self.output.set_text_send_handler(handler)
+
+    def set_terminal_input_mode(self, mode: TerminalInputMode) -> None:
+        """切换终端行缓冲/逐键发送模式。"""
+        self.output.set_input_mode(mode)
+
+    @property
+    def terminal_input_mode(self) -> TerminalInputMode:
+        """返回当前终端输入模式。"""
+        return self.output.input_mode
+
+    def set_terminal_input_enabled(self, enabled: bool) -> None:
+        """在会话未连接时禁用逐键发送。"""
+        self.output.set_raw_input_enabled(enabled)
+
     def set_terminal_draft(self, text: str) -> None:
         """替换终端输入草稿。"""
         self.output.set_draft(text)
@@ -261,6 +284,7 @@ class ReceivePanel(QWidget):
         self.output.set_highlight_enabled(self.highlight_check.isChecked())
         self.output.set_show_timestamps(self.terminal_timestamp_check.isChecked())
         self.output.set_wrap_enabled(self.wrap_check.isChecked())
+        self.output.set_input_mode(preferences.terminal_input_mode)
         self.render_records()
 
     @property
