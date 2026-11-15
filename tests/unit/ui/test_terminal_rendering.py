@@ -184,9 +184,7 @@ def test_terminal_row_timestamps_render_and_toggle(qtbot: object) -> None:
         assert QApplication.clipboard().text() == text
 
         # 先清掉选中，再关闭时间戳；存在选中时渲染按设计延迟。
-        cursor = output.textCursor()
-        cursor.clearSelection()
-        output.setTextCursor(cursor)
+        output.clear_selection()
         tab.receive_panel.terminal_timestamp_check.setChecked(False)
         qtbot.waitUntil(lambda: output.toPlainText() == "hello world", timeout=2000)
     finally:

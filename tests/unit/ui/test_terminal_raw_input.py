@@ -149,6 +149,48 @@ def test_raw_mode_copy_paste_shortcuts(qtbot: object) -> None:
         window.close()
 
 
+def test_raw_mode_ctrl_insert_copies_without_sending(qtbot: object) -> None:
+    transport = FakeTransport()
+    window, tab = _raw_terminal(qtbot, transport)
+
+    try:
+        output = tab.receive_panel.output
+        transport.push_read(b"hello")
+        qtbot.waitUntil(lambda: output.toPlainText() == "hello", timeout=2000)
+
+        cursor = output.textCursor()
+        cursor.setPosition(0)
+        cursor.setPosition(5, QTextCursor.MoveMode.KeepAnchor)
+        output.setTextCursor(cursor)
+        QApplication.clipboard().clear()
+
+        QTest.keyClick(output, Qt.Key.Key_Insert, Qt.KeyboardModifier.ControlModifier)
+
+        assert QApplication.clipboard().text() == "hello"
+        assert transport.writes == []
+        assert output.textCursor().hasSelection() is True
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
+def test_raw_mode_shift_insert_pastes_clipboard(qtbot: object) -> None:
+    transport = FakeTransport()
+    window, tab = _raw_terminal(qtbot, transport)
+
+    try:
+        output = tab.receive_panel.output
+        output.setFocus()
+        QApplication.clipboard().setText("pasted")
+
+        QTest.keyClick(output, Qt.Key.Key_Insert, Qt.KeyboardModifier.ShiftModifier)
+
+        qtbot.waitUntil(lambda: transport.writes == [b"pasted"], timeout=2000)
+    finally:
+        tab.controller.close(force=True)
+        window.close()
+
+
 def test_raw_mode_ctrl_c_interrupts_even_with_selection(qtbot: object) -> None:
     transport = FakeTransport()
     window, tab = _raw_terminal(qtbot, transport)

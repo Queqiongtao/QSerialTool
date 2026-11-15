@@ -201,11 +201,11 @@ def test_split_selection_survives_incoming_data(qtbot: object) -> None:
 
         assert output.textCursor().hasSelection() is True
         assert len(output.textCursor().selectedText()) == 5
+        assert "second" not in output.toPlainText()
 
-        cleared = QTextCursor(output.document())
-        cleared.setPosition(0)
-        output.setTextCursor(cleared)
+        output.clear_selection()
 
+        qtbot.waitUntil(lambda: "second" in output.toPlainText(), timeout=2000)
         assert output.textCursor().position() == output.document().characterCount() - 1
     finally:
         tab.controller.close(force=True)
@@ -230,10 +230,11 @@ def test_split_drag_selection_anchor_survives_incoming_data(qtbot: object) -> No
         # 按下后数据帧到达：光标不能离开点击处，否则拖选锚点会漂到文档末尾。
         mouse_press(output, cursor_point(output, start))
         transport.push_read(b"second")
-        qtbot.waitUntil(lambda: "second" in output.toPlainText(), timeout=2000)
+        qtbot.waitUntil(lambda: len(tab.controller.records) == 2, timeout=2000)
 
         assert output.textCursor().hasSelection() is False
         assert output.textCursor().position() == start
+        assert "second" not in output.toPlainText()
 
         mouse_drag(output, cursor_point(output, end))
         mouse_release(output, cursor_point(output, end))
@@ -241,6 +242,11 @@ def test_split_drag_selection_anchor_survives_incoming_data(qtbot: object) -> No
         cursor = output.textCursor()
         assert cursor.selectionStart() == start
         assert cursor.selectedText() == "hello"
+        assert "second" not in output.toPlainText()
+
+        output.clear_selection()
+
+        qtbot.waitUntil(lambda: "second" in output.toPlainText(), timeout=2000)
     finally:
         tab.controller.close(force=True)
         window.close()

@@ -1,8 +1,11 @@
 """终端视图控件：渲染终端网格并提供光标处的内联输入。"""
 
+import logging
+import os
+import traceback
 from collections.abc import Callable, Sequence
 
-from PySide6.QtCore import QEvent, QRect, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QContextMenuEvent,
     QFocusEvent,
@@ -17,12 +20,14 @@ from PySide6.QtGui import (
     QTextCursor,
     QTextOption,
 )
-from PySide6.QtWidgets import QMenu, QPlainTextEdit, QWidget
+from PySide6.QtWidgets import QApplication, QMenu, QPlainTextEdit, QWidget
 
 from qserialtool.domain import TerminalInputMode, TerminalScreen
 from qserialtool.ui.terminal_inline_input import TerminalInlineInput
 from qserialtool.ui.terminal_render_format import text_format
 from qserialtool.ui.terminal_screen_renderer import TerminalScreenRenderer
+
+logger = logging.getLogger(__name__)
 
 # 块状光标的闪烁周期（毫秒）；与 Windows 控制台、xterm 默认的 530ms 一致。
 _CURSOR_BLINK_MS = 530
@@ -49,6 +54,7 @@ class TerminalOutput(QPlainTextEdit):
     """渲染终端网格，并支持行缓冲草稿或逐键发送两种输入方式。"""
 
     copied = Signal(int)
+    selectionInteractionFinished = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -58,6 +64,12 @@ class TerminalOutput(QPlainTextEdit):
         self._batch_update = False
         self._scrolling = False
         self._mouse_selecting = False
+        self._mouse_press_position = QPoint()
+        self._mouse_dragged = False
+        self._drag_selection: QTextCursor | None = None
+        self._selection_locked = False
+        self._selection_snapshot: QTextCursor | None = None
+        self._selection_scroll_value: int | None = None
         self._cursor_visible = True
         self._cursor_blink_timer = QTimer(self)
         self._cursor_blink_timer.setInterval(_CURSOR_BLINK_MS)
@@ -86,6 +98,11 @@ class TerminalOutput(QPlainTextEdit):
         return self._input.draft
 
     @property
+    def is_mouse_selecting(self) -> bool:
+        """返回是否仍处于左键拖选过程中。"""
+        return self._mouse_selecting
+
+    @property
     def input_mode(self) -> TerminalInputMode:
         """返回当前终端输入模式。"""
         return self._input.mode
@@ -103,6 +120,7 @@ class TerminalOutput(QPlainTextEdit):
         if self._terminal_mode == enabled:
             return
         self._terminal_mode = enabled
+        self._reset_selection_lock()
         self._renderer.reset_for_mode()
         self._input.set_enabled(enabled)
         super().clear()
@@ -170,6 +188,7 @@ class TerminalOutput(QPlainTextEdit):
 
     def clear_content(self) -> None:
         """清空控件内容；终端模式由调用方随后重建画面。"""
+        self._reset_selection_lock()
         self._renderer.cancel_deferred()
         self._renderer.invalidate()
         super().clear()
@@ -188,6 +207,7 @@ class TerminalOutput(QPlainTextEdit):
         """在一个编辑块内追加多行，行尾用默认文本色换行，供批量记录合并渲染。"""
         if not lines:
             return
+        selection = self.textCursor() if self.textCursor().hasSelection() else None
         cursor = QTextCursor(self.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
         default_color = self.palette().color(QPalette.ColorRole.Text).name()
@@ -201,6 +221,9 @@ class TerminalOutput(QPlainTextEdit):
             cursor.setCharFormat(text_format(default_color))
             cursor.insertText("\n")
         cursor.endEditBlock()
+        if selection is not None:
+            # 追加发生在选区之后：恢复旧范围，避免 Qt 把选区扩展到新数据。
+            self.setTextCursor(selection)
         if not self._batch_update:
             self._scroll_after_update()
 
@@ -271,7 +294,7 @@ class TerminalOutput(QPlainTextEdit):
         """自动滚动到末尾；存在选中内容、鼠标拖选或正在滚动时保持原位。"""
         if not self._autoscroll or self._scrolling or self._mouse_selecting:
             return
-        if self.textCursor().hasSelection():
+        if self._selection_locked or self.textCursor().hasSelection():
             return
         self._scrolling = True
         try:
@@ -280,15 +303,54 @@ class TerminalOutput(QPlainTextEdit):
         finally:
             self._scrolling = False
 
+    def _reset_selection_lock(self) -> None:
+        """显式解除选区锁；只在用户主动操作或重建文档时调用。"""
+        self._selection_locked = False
+        self._selection_snapshot = None
+        self._selection_scroll_value = None
+
+    def _restore_selection(self) -> None:
+        """恢复被内部更新清掉的用户选区，并回到原来的滚动位置。"""
+        snapshot = self._selection_snapshot
+        if snapshot is None:
+            return
+        if os.environ.get("QSERIALTOOL_DEBUG_SELECTION") == "1":
+            logger.warning(
+                "检测到选区被清空并恢复：focus=%s mouse=%s scroll=%s\n%s",
+                self.hasFocus(),
+                self._mouse_selecting,
+                self.verticalScrollBar().value(),
+                "".join(traceback.format_stack(limit=8)),
+            )
+        self.setTextCursor(snapshot)
+        if self._selection_scroll_value is not None:
+            self.verticalScrollBar().setValue(self._selection_scroll_value)
+
     def _on_selection_changed(self) -> None:
-        """选中被清除后补上暂停期间延迟的渲染与自动滚动。"""
-        if self._scrolling or self._mouse_selecting or self.textCursor().hasSelection():
+        """保护用户选区，并在选区被清除后补上延迟渲染与自动滚动。"""
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            self._selection_locked = True
+            self._selection_snapshot = QTextCursor(cursor)
+            if self._selection_scroll_value is None:
+                self._selection_scroll_value = self.verticalScrollBar().value()
+            return
+        if self._selection_locked and self._selection_snapshot is not None:
+            # 数据渲染、光标归位或平台样式清空选区时恢复用户选择；
+            # 这里不能依赖焦点，否则失焦/窗口切换期间会被内部更新绕过。
+            self._restore_selection()
+            return
+        self._reset_selection_lock()
+        if self._scrolling or self._mouse_selecting:
             return
         if self._renderer.flush_deferred():
             self._scroll_after_update()
 
     def focusInEvent(self, event: QFocusEvent) -> None:
         super().focusInEvent(event)
+        if self.textCursor().hasSelection():
+            self._selection_locked = True
+            self._selection_snapshot = QTextCursor(self.textCursor())
         self._touch_cursor()
 
     def focusOutEvent(self, event: QFocusEvent) -> None:
@@ -308,15 +370,52 @@ class TerminalOutput(QPlainTextEdit):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """左键按下时冻结渲染路径，保住点击位置设置的选区锚点。"""
         if event.button() == Qt.MouseButton.LeftButton:
+            self._reset_selection_lock()
             self._mouse_selecting = True
+            self._mouse_press_position = event.position().toPoint()
+            self._mouse_dragged = False
+            self._drag_selection = None
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """记录拖选状态和最新选区，供释放时恢复。"""
+        left_button = bool(event.buttons() & Qt.MouseButton.LeftButton)
+        if left_button:
+            moved = event.position().toPoint() - self._mouse_press_position
+            if moved.manhattanLength() >= QApplication.startDragDistance():
+                self._mouse_dragged = True
+        super().mouseMoveEvent(event)
+        if left_button and self.textCursor().hasSelection():
+            self._drag_selection = QTextCursor(self.textCursor())
+
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """左键释放后恢复延迟渲染与自动滚动；只是单击时同样生效。"""
+        """左键释放后恢复延迟渲染与自动滚动；只是单击时同样生效。
+
+        必须先交给基类完成释放，再解除 ``_mouse_selecting``：基类在释放时可能
+        触发 ``selectionChanged`` 或自动滚动，过早解除保护会让延迟渲染在选区
+        尚未稳定时补画，``place_cursor()`` 随即将光标移回草稿末尾并清掉选区。
+        拖选时再快照一次选区，防止平台样式或基类在释放阶段清掉高亮。
+        """
         if event.button() == Qt.MouseButton.LeftButton:
-            self._mouse_selecting = False
+            moved = event.position().toPoint() - self._mouse_press_position
+            dragged = (
+                self._mouse_dragged or moved.manhattanLength() >= QApplication.startDragDistance()
+            )
+            scroll_value = self.verticalScrollBar().value()
+            selection = self.textCursor() if self.textCursor().hasSelection() else None
+            if selection is None:
+                selection = self._drag_selection
             super().mouseReleaseEvent(event)
+            self._mouse_selecting = False
+            if dragged and selection is not None and not self.textCursor().hasSelection():
+                self.setTextCursor(selection)
+            self._mouse_dragged = False
+            self._drag_selection = None
             self._on_selection_changed()
+            if self.textCursor().hasSelection():
+                self._selection_scroll_value = scroll_value
+                self.verticalScrollBar().setValue(scroll_value)
+            self.selectionInteractionFinished.emit()
             return
         super().mouseReleaseEvent(event)
 
@@ -326,6 +425,16 @@ class TerminalOutput(QPlainTextEdit):
             event.accept()
             return
         self._build_context_menu().exec(event.globalPos())
+
+    def clear_selection(self) -> None:
+        """显式清除用户选区，允许延迟渲染立即补齐。"""
+        self._reset_selection_lock()
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            self._on_selection_changed()
+            return
+        cursor.clearSelection()
+        self.setTextCursor(cursor)
 
     def _copy_selection(self) -> bool:
         """复制当前选区并通知宿主；没有选区时返回 False。"""
@@ -361,6 +470,36 @@ class TerminalOutput(QPlainTextEdit):
         if not self._terminal_mode:
             super().keyPressEvent(event)
             return
+        modifiers = event.modifiers()
+        key = event.key()
+        # Windows 终端习惯：Ctrl+Insert 复制、Shift+Insert 粘贴。
+        # 这两个键必须优先于逐键发送，否则会作为 xterm 序列发给设备。
+        if key == Qt.Key.Key_Insert:
+            if modifiers & Qt.KeyboardModifier.ControlModifier and not (
+                modifiers
+                & (
+                    Qt.KeyboardModifier.ShiftModifier
+                    | Qt.KeyboardModifier.AltModifier
+                    | Qt.KeyboardModifier.MetaModifier
+                )
+            ):
+                self._copy_selection()
+                event.accept()
+                return
+            if modifiers & Qt.KeyboardModifier.ShiftModifier and not (
+                modifiers
+                & (
+                    Qt.KeyboardModifier.ControlModifier
+                    | Qt.KeyboardModifier.AltModifier
+                    | Qt.KeyboardModifier.MetaModifier
+                )
+            ):
+                self._reset_selection_lock()
+                self.paste()
+                self._touch_cursor()
+                event.accept()
+                return
+        self._reset_selection_lock()
         if self._input.is_raw:
             self._handle_raw_key(event)
             return
@@ -416,6 +555,7 @@ class TerminalOutput(QPlainTextEdit):
 
     def _prepare_raw_input(self) -> None:
         """逐键输入前清理选区，把光标放回终端模型光标处。"""
+        self._reset_selection_lock()
         cursor = self.textCursor()
         if cursor.hasSelection():
             cursor.clearSelection()

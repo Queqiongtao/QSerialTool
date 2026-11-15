@@ -132,8 +132,10 @@ class TerminalInlineInput:
         self._input_start_position = position
         self._cursor_block_number = block_number
 
-    def place_cursor(self) -> None:
-        """把文本光标放到草稿末尾。"""
+    def place_cursor(self, *, preserve_selection: bool = True) -> None:
+        """把文本光标放到草稿末尾；默认在用户已有选区时保持不动。"""
+        if preserve_selection and self._view.textCursor().hasSelection():
+            return
         _, end = self.bounds()
         caret = QTextCursor(self._view.document())
         caret.setPosition(end)
@@ -152,7 +154,7 @@ class TerminalInlineInput:
         cursor.setPosition(start)
         cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
         cursor.insertText(text)
-        self.place_cursor()
+        self.place_cursor(preserve_selection=False)
         self._after_edit()
 
     def sync_from_document(self) -> None:

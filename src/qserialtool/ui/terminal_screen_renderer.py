@@ -113,6 +113,9 @@ class TerminalScreenRenderer:
         screen = self._screen
         if screen is None:
             return
+        if self._should_defer():
+            self._deferred = True
+            return
         self._deferred = False
         self._rendering = True
         try:

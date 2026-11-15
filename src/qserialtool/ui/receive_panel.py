@@ -72,6 +72,7 @@ class ReceivePanel(QWidget):
         self._screen: TerminalScreen | None = None
         self._loading = False
         self._pending_records: list[LogRecord] = []
+        self._refresh_after_selection = False
         self._last_flush: QElapsedTimer | None = None
         self._flush_timer = QTimer(self)
         self._flush_timer.setSingleShot(True)
@@ -254,6 +255,8 @@ class ReceivePanel(QWidget):
         self.terminal_timestamp_check.toggled.connect(self._settings_changed)
         self.pause_button.toggled.connect(self._pause_changed)
         self.clear_button.clicked.connect(self._clear)
+        self.output.selectionChanged.connect(self._on_output_selection_changed)
+        self.output.selectionInteractionFinished.connect(self._on_output_selection_changed)
 
     def apply_preferences(self, preferences: SessionPreferences) -> None:
         """应用持久化的显示偏好。"""
@@ -305,6 +308,11 @@ class ReceivePanel(QWidget):
             return
         if not self._should_show(record):
             return
+        if self.output.textCursor().hasSelection():
+            # 分栏视图选中期间冻结追加，避免新数据修改文档或扩展选区；
+            # 记录仍在 controller 缓冲中，取消选区后整屏补渲染。
+            self._refresh_after_selection = True
+            return
         self._pending_records.append(record)
         self._schedule_flush()
 
@@ -328,6 +336,10 @@ class ReceivePanel(QWidget):
         if self._terminal_mode:
             if not self._paused:
                 self._render_terminal_screen()
+            return
+        if self.output.textCursor().hasSelection():
+            self._pending_records.clear()
+            self._refresh_after_selection = True
             return
         records, self._pending_records = self._pending_records, []
         if not records:
@@ -354,6 +366,7 @@ class ReceivePanel(QWidget):
         self._sync_empty_state()
 
     def _render_records(self) -> None:
+        self._refresh_after_selection = False
         self._discard_pending()
         records = self._records_provider()
         hidden = max(len(records) - _MAX_RENDERED_RECORDS, 0)
@@ -436,6 +449,24 @@ class ReceivePanel(QWidget):
         self.output.set_wrap_enabled(self.wrap_check.isChecked())
         self.render_records()
         self.preferences_changed.emit()
+
+    def _on_output_selection_changed(self) -> None:
+        """分栏视图选区出现时冻结追加，选区清除后从缓冲补齐。"""
+        if self._terminal_mode:
+            return
+        if self.output.textCursor().hasSelection():
+            if self._pending_records:
+                self._refresh_after_selection = True
+            self._pending_records.clear()
+            self._flush_timer.stop()
+            return
+        if self.output.is_mouse_selecting:
+            # 按下开始新拖选时 Qt 可能先清空旧选区；等释放后再补渲染，
+            # 避免在拖选锚点建立期间重建文档。
+            return
+        if self._refresh_after_selection:
+            self._refresh_after_selection = False
+            self.render_records()
 
     def _pause_changed(self, paused: bool) -> None:
         self._paused = paused
